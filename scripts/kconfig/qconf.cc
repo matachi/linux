@@ -5,7 +5,7 @@
  */
 
 #include <qglobal.h>
-
+#include <QDebug>
 #include <QMainWindow>
 #include <QList>
 #include <QListWidget>
@@ -297,6 +297,7 @@ void ConfigLineEdit::keyPressEvent(QKeyEvent* e)
 		Parent::keyPressEvent(e);
 		return;
 	}
+	qDebug() << "Just keyPressEvent";
 	e->accept();
 	parent()->list->setFocus();
 	hide();
@@ -473,6 +474,7 @@ void ConfigList::setValue(ConfigItem* item, tristate val)
 	sym = item->menu ? item->menu->sym : 0;
 	if (!sym)
 		return;
+	qDebug() << "Just testing setValue";
 
 	type = sym_get_type(sym);
 	switch (type) {
@@ -504,6 +506,8 @@ void ConfigList::changeValue(ConfigItem* item)
 			item->setExpanded(!item->isExpanded());
 		return;
 	}
+	qDebug() << "Just changeValue";
+
 
 	type = sym_get_type(sym);
 	switch (type) {
