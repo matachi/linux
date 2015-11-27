@@ -8,6 +8,7 @@
 
 #include <QMainWindow>
 #include <QList>
+#include <QListWidget>
 #include <qtextbrowser.h>
 #include <QAction>
 #include <QFileDialog>
@@ -1365,6 +1366,9 @@ ConfigMainWindow::ConfigMainWindow(void)
 
 	split2 = new QSplitter(split1);
 	split2->setOrientation(Qt::Vertical);
+
+	QListWidget *conflictsViewList = new QListWidget(split1);
+	conflictsViewList->addItem("ConflictsView");
 
 	// create config tree
 	configView = new ConfigView(split2, "config");
