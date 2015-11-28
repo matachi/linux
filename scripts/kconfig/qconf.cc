@@ -13,6 +13,7 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QMenu>
+#include <QtConcurrentRun>
 
 #include <qapplication.h>
 #include <qdesktopwidget.h>
@@ -491,6 +492,12 @@ void ConfigList::setValue(ConfigItem* item, tristate val)
 	}
 }
 
+int doConflictCheck(ConfigItem* item)
+{
+	qDebug() << "Do conflict check";
+	return qrand();
+}
+
 void ConfigList::changeValue(ConfigItem* item)
 {
 	struct symbol* sym;
@@ -507,6 +514,8 @@ void ConfigList::changeValue(ConfigItem* item)
 		return;
 	}
 	qDebug() << "Just changeValue";
+	QFuture<int> future = QtConcurrent::run(doConflictCheck, item);
+	emit foundConflict(future.result());
 
 
 	type = sym_get_type(sym);
@@ -1334,6 +1343,10 @@ void ConfigSearchWindow::search(void)
 	}
 }
 
+void ConfigMainWindow::addConflict(int something) {
+	conflictsList->addItem(QString("Conflict check did some job: %1").arg(something));
+}
+
 /*
  * Construct the complete config widget
  */
@@ -1367,6 +1380,7 @@ ConfigMainWindow::ConfigMainWindow(void)
 
 	menuView = new ConfigView(split1, "menu");
 	menuList = menuView->list;
+	connect(menuList, SIGNAL(foundConflict(int)), SLOT(addConflict(int)));
 
 	split2 = new QSplitter(split1);
 	split2->setOrientation(Qt::Vertical);
@@ -1377,6 +1391,7 @@ ConfigMainWindow::ConfigMainWindow(void)
 	// create config tree
 	configView = new ConfigView(split2, "config");
 	configList = configView->list;
+	connect(configList, SIGNAL(foundConflict(int)), SLOT(addConflict(int)));
 
 	helpText = new ConfigInfoView(split2, "help");
 

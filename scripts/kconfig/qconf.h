@@ -73,6 +73,7 @@ signals:
 	void menuSelected(struct menu *menu);
 	void parentSelected(void);
 	void gotFocus(struct menu *);
+	void foundConflict(int);
 
 public:
 	void updateListAll(void)
@@ -311,6 +312,7 @@ public slots:
 	void showConflicts(void);
 	void showAbout(void);
 	void saveSettings(void);
+	void addConflict(int);
 
 protected:
 	void closeEvent(QCloseEvent *e);
