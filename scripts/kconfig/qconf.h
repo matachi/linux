@@ -308,6 +308,7 @@ public slots:
 	void showSplitView(void);
 	void showFullView(void);
 	void showIntro(void);
+	void showConflicts(void);
 	void showAbout(void);
 	void saveSettings(void);
 
@@ -319,12 +320,14 @@ protected:
 	ConfigList *menuList;
 	ConfigView *configView;
 	ConfigList *configList;
+	QListWidget *conflictsList;
 	ConfigInfoView *helpText;
 	QToolBar *toolBar;
 	QAction *backAction;
 	QAction *singleViewAction;
 	QAction *splitViewAction;
 	QAction *fullViewAction;
+	QAction *conflictsAction;
 	QSplitter *split1;
 	QSplitter *split2;
 };
