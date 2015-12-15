@@ -14,6 +14,8 @@
 #include <QFileDialog>
 #include <QMenu>
 #include <QtConcurrentRun>
+#include <QProcess>
+#include <QObject>
 
 #include <qapplication.h>
 #include <qdesktopwidget.h>
@@ -495,6 +497,32 @@ void ConfigList::setValue(ConfigItem* item, tristate val)
 int doConflictCheck(ConfigItem* item)
 {
 	qDebug() << "Do conflict check";
+
+	// Doesn't work for some reason; it dosen't read the environment variable.
+	QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+	QString kconfigreader = env.value("KCONFIGREADER", "~/dev/kconfigreader");
+	qDebug() << "KconfigReader location:" << kconfigreader;
+	//qDebug() << "KconfigReader location:" << qgetenv("KCONFIGREADER");
+
+	QString program = "bash";
+	QStringList params = QStringList()
+		<< "-c"
+		<< kconfigreader + "/run.sh de.fosd.typechef.kconfig.KConfigReader \
+		--writeDimacs Kconfig out";
+	QProcess process;
+	process.start(program, params);
+	process.waitForFinished();
+	// Doesn't read the output properly; only one line.
+	QString output = process.readAll();
+	qDebug() << output;
+	//while (process.state() == QProcess::Running) {
+	//	QString output(process.readAllStandardOutput());
+	//	qDebug() << output; */
+	//}
+	process.close();
+
+	qDebug() << "Conflict check done";
+
 	return qrand();
 }
 
