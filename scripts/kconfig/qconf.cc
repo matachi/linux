@@ -504,13 +504,14 @@ int doConflictCheck(ConfigItem* item)
 	qDebug() << "KconfigReader location:" << kconfigreader;
 	//qDebug() << "KconfigReader location:" << qgetenv("KCONFIGREADER");
 
-	QString program = "bash";
+	QString program = "java";
 	QStringList params = QStringList()
-		<< "-c"
-		<< kconfigreader + "/run.sh de.fosd.typechef.kconfig.KConfigReader \
-		--writeDimacs Kconfig out";
+		<< "-ea" << "-Xmx3G" << "-Xms128m" << "-Xss10m" << "-classpath" << "/home/matachi/dev/kconfigreader/target/scala-2.11/classes:/home/matachi/.ivy2/cache/org.scala-lang/scala-library/jars/scala-library-2.11.7.jar:/home/matachi/.ivy2/cache/de.fosd.typechef/featureexprlib_2.11/jars/featureexprlib_2.11-0.3.7.jar:/home/matachi/.ivy2/cache/org.scala-lang.modules/scala-parser-combinators_2.11/bundles/scala-parser-combinators_2.11-1.0.4.jar:/home/matachi/.ivy2/cache/org.scala-lang.modules/scala-xml_2.11/bundles/scala-xml_2.11-1.0.5.jar:/home/matachi/.ivy2/cache/org.ow2.sat4j/org.ow2.sat4j.core/jars/org.ow2.sat4j.core-2.3.5.jar:/home/matachi/.ivy2/cache/de.fosd.typechef/javabdd_repackaged/jars/javabdd_repackaged-1.0b2.jar" << "de.fosd.typechef.kconfig.KConfigReader" << "--writeDimacs" << "Kconfig" << "/home/matachi/dev/kconfigreader/out";
+		/* << kconfigreader + "/run.sh de.fosd.typechef.kconfig.KConfigReader \ */
+		/* --writeDimacs Kconfig out"; */
 	QProcess process;
 	process.start(program, params);
+	qDebug() << params;
 	process.waitForFinished();
 	// Doesn't read the output properly; only one line.
 	QString output = process.readAll();
