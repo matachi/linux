@@ -38,6 +38,9 @@
 #include "qconf.moc"
 #include "images.c"
 
+#include <Python.h>
+#include "test.h"
+
 #ifdef _
 # undef _
 # define _ qgettext
@@ -1926,6 +1929,12 @@ int main(int ac, char** av)
 	configSettings = new ConfigSettings();
 	configSettings->beginGroup("/kconfig/qconf");
 	v = new ConfigMainWindow();
+
+	Py_SetProgramName(av[0]);
+	Py_Initialize();
+	inittest();
+	grail(rootmenu.list->next);
+	Py_Finalize();
 
 	//zconfdump(stdout);
 	configApp->connect(configApp, SIGNAL(lastWindowClosed()), SLOT(quit()));
