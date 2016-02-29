@@ -3,7 +3,7 @@
 # These targets are used from top-level makefile
 
 PHONY += xconfig gconfig menuconfig config silentoldconfig update-po-config \
-	localmodconfig localyesconfig
+	localmodconfig localyesconfig rangefixconfig
 
 ifdef KBUILD_KCONFIG
 Kconfig := $(KBUILD_KCONFIG)
@@ -17,6 +17,9 @@ endif
 
 # We need this, in case the user has it in its environment
 unexport CONFIG_
+
+rangefixconfig: $(obj)/rangefixtest
+	$<
 
 xconfig: $(obj)/qconf
 	$< $(silent) $(Kconfig)
@@ -183,8 +186,9 @@ kxgettext-objs	:= kxgettext.o zconf.tab.o
 qconf-cxxobjs	:= qconf.o
 qconf-objs	:= zconf.tab.o
 gconf-objs	:= gconf.o zconf.tab.o
+rangefixtest-objs	:= rangefixtest.o rangefix.o zconf.tab.o
 
-hostprogs-y := conf nconf mconf kxgettext qconf gconf
+hostprogs-y := conf nconf mconf kxgettext qconf gconf rangefixtest
 
 clean-files	:= qconf.moc .tmp_qtcheck .tmp_gtkcheck
 clean-files	+= zconf.tab.c zconf.lex.c zconf.hash.c gconf.glade.h
@@ -214,6 +218,10 @@ HOSTCXXFLAGS_qconf.o	= $(KC_QT_CFLAGS)
 HOSTLOADLIBES_gconf	= `pkg-config --libs gtk+-2.0 gmodule-2.0 libglade-2.0`
 HOSTCFLAGS_gconf.o	= `pkg-config --cflags gtk+-2.0 gmodule-2.0 libglade-2.0` \
                           -Wno-missing-prototypes
+
+HOSTLOADLIBES_rangefixtest	:= $(shell pkg-config --libs check)
+HOSTCFLAGS_rangefixtest.o	:= $(shell pkg-config --cflags check)
+
 
 HOSTLOADLIBES_mconf   = $(shell $(CONFIG_SHELL) $(check-lxdialog) -ldflags $(HOSTCC))
 
