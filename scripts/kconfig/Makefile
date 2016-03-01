@@ -186,7 +186,7 @@ kxgettext-objs	:= kxgettext.o zconf.tab.o
 qconf-cxxobjs	:= qconf.o
 qconf-objs	:= zconf.tab.o
 gconf-objs	:= gconf.o zconf.tab.o
-rangefixtest-objs	:= rangefixtest.o rangefix.o zconf.tab.o
+rangefixtest-objs	:= rangefixtest.o rangefix.o zconf.tab.o picosat.o satconf.o
 
 hostprogs-y := conf nconf mconf kxgettext qconf gconf rangefixtest
 
@@ -222,6 +222,7 @@ HOSTCFLAGS_gconf.o	= `pkg-config --cflags gtk+-2.0 gmodule-2.0 libglade-2.0` \
 HOSTLOADLIBES_rangefixtest	:= $(shell pkg-config --libs check)
 HOSTCFLAGS_rangefixtest.o	:= $(shell pkg-config --cflags check)
 
+HOSTCFLAGS_picosat.o	:= -DTRACE
 
 HOSTLOADLIBES_mconf   = $(shell $(CONFIG_SHELL) $(check-lxdialog) -ldflags $(HOSTCC))
 

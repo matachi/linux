@@ -1,4 +1,7 @@
+#include "bool.h"
+#include "picosat.h"
 #include "rangefix.h"
+#include "satconf.h"
 
 #define CONFIG_DEBUG 1
 
