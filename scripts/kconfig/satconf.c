@@ -15,7 +15,7 @@
 #include "picosat.h"
 #include "satconf.h"
 
-#define CONFIG_DEBUG 1
+#define CONFIG_DEBUG 0
 
 #if CONFIG_DEBUG
 #define DEBUG(fmt, ...) fprintf(stderr, fmt, ## __VA_ARGS__)
@@ -1220,7 +1220,6 @@ void satconfig_solve(void)
 {
 	int sat = picosat_sat(-1);
 	unsigned int i;
-  picosat_print(fopen("apa2.txt", "w"));
 
 	if (sat != PICOSAT_SATISFIABLE) {
 		fprintf(stderr, "error: unsatisfiable constraints\n");
