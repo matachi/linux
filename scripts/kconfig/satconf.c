@@ -38,6 +38,8 @@ static struct property **default_variables;
  * encoding) */
 static unsigned int nr_sat_variables;
 
+PicoSAT *pico;
+
 static unsigned int sym_y(struct symbol *sym)
 {
 	assert(sym->type == S_BOOLEAN || sym->type == S_TRISTATE);
@@ -420,12 +422,12 @@ static void add_clause(const char *name, unsigned int nr_literals, ...)
 	for (i = 0; i < nr_literals; ++i) {
 		int lit = va_arg(ap, int);
 		assert(lit != 0);
-		picosat_add(lit);
+		picosat_add(pico, lit);
 
 		DEBUG("%d ", lit);
 	}
 
-	int clause_index = picosat_add(0);
+	int clause_index = picosat_add(pico, 0);
 
 	DEBUG("\n");
 
@@ -479,7 +481,7 @@ static int _add_clauses(struct bool_expr *e, const char *name)
 		bool_put(e->binary.a);
 		int b = _add_clauses(e->binary.b, name);
 		bool_put(e->binary.b);
-		int c = picosat_inc_max_var();
+		int c = picosat_inc_max_var(pico);
 		e->op = LITERAL;
 		e->literal = c;
 
@@ -494,7 +496,7 @@ static int _add_clauses(struct bool_expr *e, const char *name)
 		bool_put(e->binary.a);
 		int b = _add_clauses(e->binary.b, name);
 		bool_put(e->binary.b);
-		int c = picosat_inc_max_var();
+		int c = picosat_inc_max_var(pico);
 		e->op = LITERAL;
 		e->literal = c;
 
@@ -509,7 +511,7 @@ static int _add_clauses(struct bool_expr *e, const char *name)
 		bool_put(e->binary.a);
 		int b = _add_clauses(e->binary.b, name);
 		bool_put(e->binary.b);
-		int c = picosat_inc_max_var();
+		int c = picosat_inc_max_var(pico);
 		e->op = LITERAL;
 		e->literal = c;
 
@@ -1067,8 +1069,8 @@ static void check_sym_value(struct symbol *sym, tristate value)
 
 void satconfig_init(const char *Kconfig_file, bool randomize)
 {
-	picosat_init();
-	picosat_enable_trace_generation();
+	pico = picosat_init();
+	picosat_enable_trace_generation(pico);
 
 	conf_parse(Kconfig_file);
 
@@ -1081,10 +1083,10 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 
 	/* We _will_ need more variables as we build the clauses, but
 	 * picosat_inc_max_var() takes care of it. */
-	picosat_adjust(1 + nr_sat_variables);
+	picosat_adjust(pico, 1 + nr_sat_variables);
 
 	/* Create a boolean variable that we force to be true */
-	bool_true = bool_var(picosat_inc_max_var());
+	bool_true = bool_var(picosat_inc_max_var(pico));
 	add_clause("true", 1, bool_true->literal);
 
 	if (!build_clauses()) {
@@ -1098,13 +1100,13 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 
 	/* Annoyingly, we have to set phases before doing the first solve. */
 	if (randomize) {
-		picosat_set_seed(time(NULL));
-		picosat_set_global_default_phase(3);
+		picosat_set_seed(pico, time(NULL));
+		picosat_set_global_default_phase(pico, 3);
 	} else {
-		picosat_set_global_default_phase(0);
+		picosat_set_global_default_phase(pico, 0);
 	}
 
-	picosat_set_default_phase_lit(modules_sym->sat_variable, 1);
+	picosat_set_default_phase_lit(pico, modules_sym->sat_variable, 1);
 
 	{
 		/* Modules are preferred over built-ins; tell that to the
@@ -1117,18 +1119,19 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 			if (sym->type != S_TRISTATE)
 				continue;
 
-			picosat_set_default_phase_lit(sym->sat_variable + 1, 1);
+			picosat_set_default_phase_lit(
+				pico, sym->sat_variable + 1, 1);
 		}
 	}
 
 
-	printf("%u clauses\n", picosat_added_original_clauses());
+	printf("%u clauses\n", picosat_added_original_clauses(pico));
 
 	{
 		/* First do a check to see if the instance is solvable
 		 * without any assumptions. If this is not the case, then
 		 * something is weird with the kconfig files. */
-		int sat = picosat_sat(-1);
+		int sat = picosat_sat(pico, -1);
 
 		if (sat != PICOSAT_SATISFIABLE) {
 			unsigned int i;
@@ -1136,8 +1139,8 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 			fprintf(stderr, "error: inconsistent kconfig files "
 				"(no valid configurations possible)\n");
 
-			for (i = 0; i < picosat_added_original_clauses(); ++i) {
-				if (picosat_coreclause(i))
+			for (i = 0; i < picosat_added_original_clauses(pico); ++i) {
+				if (picosat_coreclause(pico, i))
 					fprintf(stderr, "clause: %d: %s\n", i, clauses[i]);
 			}
 
@@ -1160,25 +1163,25 @@ void satconfig_update_symbol(struct symbol *sym)
 	} else {
 		switch (sym->def[S_DEF_SAT].tri) {
 		case no:
-			picosat_assume(-sym_y(sym));
+			picosat_assume(pico, -sym_y(sym));
 			break;
 		case yes:
-			picosat_assume(sym_y(sym));
+			picosat_assume(pico, sym_y(sym));
 			if (sym->type == S_TRISTATE)
-				picosat_assume(-sym_m(sym));
+				picosat_assume(pico, -sym_m(sym));
 			break;
 		case mod:
 			assert(sym->type == S_TRISTATE);
-			picosat_assume(sym_y(sym));
-			picosat_assume(sym_m(sym));
+			picosat_assume(pico, sym_y(sym));
+			picosat_assume(pico, sym_m(sym));
 			break;
 		}
 	}
 
 	if (assume)
-		picosat_assume(sym_assumed(sym));
+		picosat_assume(pico, sym_assumed(sym));
 	else
-		picosat_assume(-sym_assumed(sym));
+		picosat_assume(pico, -sym_assumed(sym));
 }
 
 void satconfig_update_all_symbols(void)
@@ -1218,14 +1221,14 @@ void satconfig_update_all_symbols(void)
 
 void satconfig_solve(void)
 {
-	int sat = picosat_sat(-1);
+	int sat = picosat_sat(pico, -1);
 	unsigned int i;
 
 	if (sat != PICOSAT_SATISFIABLE) {
 		fprintf(stderr, "error: unsatisfiable constraints\n");
 
-		for (i = 0; i < picosat_added_original_clauses(); ++i) {
-			if (picosat_coreclause(i))
+		for (i = 0; i < picosat_added_original_clauses(pico); ++i) {
+			if (picosat_coreclause(pico, i))
 				fprintf(stderr, "clause: %s\n", clauses[i]);
 		}
 
@@ -1240,12 +1243,12 @@ void satconfig_solve(void)
 			continue;
 
 		{
-			int y = picosat_deref(sym_y(sym));
+			int y = picosat_deref(pico, sym_y(sym));
 			assert(y != 0);
 
 			if (y == 1) {
 				if (sym->type == S_TRISTATE) {
-					int m = picosat_deref(sym_m(sym));
+					int m = picosat_deref(pico, sym_m(sym));
 					assert(m != 0);
 
 					if (m == 1)
@@ -1257,7 +1260,7 @@ void satconfig_solve(void)
 				}
 			} else if (y == -1) {
 				if (sym->type == S_TRISTATE) {
-					int m = picosat_deref(sym_m(sym));
+					int m = picosat_deref(pico, sym_m(sym));
 					assert(m == -1);
 				}
 
