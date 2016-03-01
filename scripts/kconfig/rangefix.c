@@ -8,11 +8,13 @@
 #define DEBUG(fmt, ...)
 #endif
 
-int rangefix_init(const char *kconfig_file) {
-  conf_parse(kconfig_file);
-  printf("test\n");
-  return 1;
+int rangefix_init(const char *kconfig_file)
+{
+	conf_parse(kconfig_file);
+	conf_read(NULL);
+	return 1;
 }
 
-void rangefix_run(struct symbol *sym, tristate val) {
+void rangefix_run(struct symbol *sym, tristate val)
+{
 }
