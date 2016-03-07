@@ -1,5 +1,6 @@
-#include <stdlib.h>
 #include <check.h>
+#include <glib.h>
+#include <stdlib.h>
 #include "rangefix.h"
 
 #define test_data(str) "scripts/kconfig/test_data/" str
@@ -7,7 +8,7 @@
 
 START_TEST(test_load_config)
 {
-	ck_assert_int_eq(rangefix_init(test_data("Kconfig1")), 1);
+	ck_assert_int_eq(rangefix_init(test_data("Kconfig1"), NULL), 1);
 	struct menu *m = &rootmenu;
 	ck_assert(m);
 	m = m->list;
@@ -22,6 +23,34 @@ END_TEST
 
 START_TEST(test_generate_diagnoses)
 {
+	GArray *diagnoses, *diagnos;
+	struct symbol *sym;
+	char *name;
+	unsigned int i;
+
+	rangefix_init(test_data("Kconfig3"), test_data("dotconfig3"));
+	diagnoses = rangefix_generate_diagnoses();
+	ck_assert_int_eq(diagnoses->len, 1);
+
+	diagnos = g_array_index(diagnoses, GArray *, 0);
+	for (i = 0; i < diagnos->len; ++i) {
+		sym = g_array_index(diagnos, struct symbol *, i);
+		name = sym->name;
+		if (g_strcmp0(name, "DRIVER1") == 0 ||
+		    g_strcmp0(name, "DRIVER2") == 0 ||
+		    g_strcmp0(name, "DRIVER3") == 0) {
+			ck_assert(true);
+			continue;
+		}
+		ck_assert(false);
+	}
+}
+END_TEST
+
+START_TEST(test_run)
+{
+	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
+	rangefix_run("B", yes);
 }
 END_TEST
 
@@ -33,6 +62,7 @@ Suite *test_suite(void) {
 
 	tcase_add_test(tc_core, test_load_config);
 	tcase_add_test(tc_core, test_generate_diagnoses);
+	tcase_add_test(tc_core, test_run);
 
 	return s;
 }

@@ -1,0 +1,14 @@
+config MODULES
+  bool "Enable loadable module support"
+  option modules
+
+config A
+  bool "A"
+  depends on B
+
+config B
+  bool "B"
+
+config C
+  bool "C"
+  depends on !B

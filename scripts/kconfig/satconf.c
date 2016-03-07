@@ -38,7 +38,15 @@ static struct property **default_variables;
  * encoding) */
 static unsigned int nr_sat_variables;
 
-PicoSAT *pico;
+static PicoSAT *pico;
+
+struct symbol_lit {
+	struct symbol_lit *next;
+	struct symbol *sym;
+	int clause;
+};
+
+static struct symbol_lit *unit_literals = NULL;
 
 static unsigned int sym_y(struct symbol *sym)
 {
@@ -72,7 +80,7 @@ static unsigned int sym_selected(struct symbol *sym)
 static const char **clauses;
 static unsigned int max_clauses;
 
-static void assign_sat_variables(void)
+void satconf_assign_sat_variables(void)
 {
 	unsigned int i;
 	struct symbol *sym;
@@ -174,7 +182,7 @@ static void assign_sat_variables(void)
 	assert(modules_sym->sat_variable > 0);
 	assert(modules_sym->sat_variable <= nr_sat_variables);
 
-	printf("%u variables (%u symbols, %u prompts, %u defaults)\n",
+	DEBUG("%u variables (%u symbols, %u prompts, %u defaults)\n",
 		nr_sat_variables, nr_symbol_variables, nr_prompt_variables, nr_default_variables);
 }
 
@@ -1067,7 +1075,8 @@ static void check_sym_value(struct symbol *sym, tristate value)
 	}
 }
 
-void satconfig_init(const char *Kconfig_file, bool randomize)
+void satconfig_init(const char *Kconfig_file, const char *config,
+                    bool randomize)
 {
 	pico = picosat_init();
 	picosat_enable_trace_generation(pico);
@@ -1077,9 +1086,9 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 	/* XXX: We need this to initialise values for non-boolean (and non-
 	 * tristate) variables. This should go away when we read .satconfig
 	 * instead for these kinds of variables. */
-	conf_read_simple(NULL, S_DEF_USER);
+	conf_read_simple(config, S_DEF_USER);
 
-	assign_sat_variables();
+	satconf_assign_sat_variables();
 
 	/* We _will_ need more variables as we build the clauses, but
 	 * picosat_inc_max_var() takes care of it. */
@@ -1125,7 +1134,7 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 	}
 
 
-	printf("%u clauses\n", picosat_added_original_clauses(pico));
+	DEBUG("%u clauses\n", picosat_added_original_clauses(pico));
 
 	{
 		/* First do a check to see if the instance is solvable
@@ -1149,7 +1158,7 @@ void satconfig_init(const char *Kconfig_file, bool randomize)
 	}
 }
 
-void satconfig_update_symbol(struct symbol *sym)
+struct symbol_lit *satconfig_update_symbol(struct symbol *sym)
 {
 	if (sym->type != S_BOOLEAN && sym->type != S_TRISTATE)
 		return;
@@ -1161,27 +1170,31 @@ void satconfig_update_symbol(struct symbol *sym)
 	} else if (sym->flags & SYMBOL_CHOICE) {
 		assume = false;
 	} else {
+		struct symbol_lit *o = calloc(1, sizeof(struct symbol_lit *));
+		o->sym = sym;
 		switch (sym->def[S_DEF_SAT].tri) {
 		case no:
-			picosat_assume(pico, -sym_y(sym));
+			o->clause = picosat_add_arg(pico, -sym_y(sym), 0);
 			break;
 		case yes:
-			picosat_assume(pico, sym_y(sym));
+			o->clause = picosat_add_arg(pico, sym_y(sym), 0);
 			if (sym->type == S_TRISTATE)
-				picosat_assume(pico, -sym_m(sym));
+				picosat_add_arg(pico, -sym_m(sym), 0);
 			break;
 		case mod:
 			assert(sym->type == S_TRISTATE);
-			picosat_assume(pico, sym_y(sym));
-			picosat_assume(pico, sym_m(sym));
+			o->clause = picosat_add_arg(pico, sym_y(sym), 0);
+			picosat_add_arg(pico, sym_m(sym), 0);
 			break;
 		}
+		return o;
 	}
+	return NULL;
 
-	if (assume)
-		picosat_assume(pico, sym_assumed(sym));
-	else
-		picosat_assume(pico, -sym_assumed(sym));
+	/* if (assume) */
+	/* 	picosat_assume(pico, sym_assumed(sym)); */
+	/* else */
+	/* 	picosat_assume(pico, -sym_assumed(sym)); */
 }
 
 void satconfig_update_all_symbols(void)
@@ -1189,6 +1202,7 @@ void satconfig_update_all_symbols(void)
 	unsigned int i;
 	struct symbol *sym;
 	struct expr *e;
+	picosat_print(pico, fopen("apa123.txt", "a"));
 
 	/* We need to do this in order to give strings from the
 	 * environment get their values in the proper place. It
@@ -1217,6 +1231,8 @@ void satconfig_update_all_symbols(void)
 	/* Use assumptions */
 	for_all_symbols(i, sym)
 		satconfig_update_symbol(sym);
+
+	picosat_print(pico, fopen("apa123.txt", "a"));
 }
 
 void satconfig_solve(void)
@@ -1271,4 +1287,75 @@ void satconfig_solve(void)
 		sym->flags |= SYMBOL_VALID;
 		sym->flags |= SYMBOL_WRITE;
 	}
+}
+
+int satconfig_sat(void)
+{
+	return picosat_sat(pico, -1);
+}
+
+static void free_unit_literals(struct symbol_lit *literal)
+{
+	if (literal->next == NULL) {
+		free(literal);
+	} else {
+		free_unit_literals(literal->next);
+		free(literal);
+	}
+}
+
+int satconfig_push(void)
+{
+	return picosat_push(pico);
+}
+
+int satconfig_pop(void)
+{
+	if (unit_literals != NULL) {
+		free_unit_literals(unit_literals);
+		unit_literals = NULL;
+	}
+	return picosat_pop(pico);
+}
+
+void satconfig_set_symbols(struct symbol **symbols, int n)
+{
+	int i;
+	struct symbol_lit *literals = NULL, *literal, *last_literal;
+
+	if (unit_literals != NULL) {
+		literals = unit_literals;
+		last_literal = unit_literals;
+		while (last_literal->next) {
+			last_literal = last_literal->next;
+		}
+	}
+
+	for (i = 0; i < n; ++i) {
+		literal = satconfig_update_symbol(symbols[i]);
+		if (literals == NULL) {
+			literals = literal;
+			unit_literals = literals;
+		} else {
+			last_literal->next = literal;
+		}
+		last_literal = literal;
+	}
+}
+
+GArray *satconfig_get_core(void)
+{
+	struct symbol_lit *literal;
+	GArray *output;
+
+	literal = unit_literals;
+	output = g_array_new(FALSE, FALSE, sizeof(struct symbol *));
+
+	while (literal) {
+		if (picosat_coreclause(pico, literal->clause) == 1) {
+			output = g_array_append_val(output, literal->sym);
+		}
+		literal = literal->next;
+	}
+	return output;
 }

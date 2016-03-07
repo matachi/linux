@@ -1,0 +1,24 @@
+config MODULES
+  bool "Enable loadable module support"
+  option modules
+
+config 64BIT
+  bool "64BIT"
+
+config DRIVER1
+  tristate "DRIVER1"
+  depends on 64BIT
+
+config DRIVER2
+  tristate "DRIVER2"
+  depends on DRIVER3 && DRIVER4
+
+config DRIVER3
+  tristate "DRIVER3"
+
+config DRIVER4
+  tristate "DRIVER4"
+
+config DRIVER5
+  tristate "DRIVER5"
+  depends on !DRIVER3
