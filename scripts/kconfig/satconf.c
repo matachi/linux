@@ -1318,7 +1318,7 @@ int satconfig_pop(void)
 	return picosat_pop(pico);
 }
 
-void satconfig_set_symbols(struct symbol **symbols, int n)
+void satconfig_set_symbols(GArray *symbols)
 {
 	int i;
 	struct symbol_lit *literals = NULL, *literal, *last_literal;
@@ -1331,8 +1331,9 @@ void satconfig_set_symbols(struct symbol **symbols, int n)
 		}
 	}
 
-	for (i = 0; i < n; ++i) {
-		literal = satconfig_update_symbol(symbols[i]);
+	for (i = 0; i < symbols->len; ++i) {
+		literal = satconfig_update_symbol(
+			g_array_index(symbols, struct symbol *, i));
 		if (literals == NULL) {
 			literals = literal;
 			unit_literals = literals;

@@ -24,7 +24,7 @@ void satconfig_solve(void);
 int satconfig_push(void);
 int satconfig_pop(void);
 int satconfig_sat(void);
-void satconfig_set_symbols(struct symbol **symbols, int n);
+void satconfig_set_symbols(GArray *symbols);
 GArray *satconfig_get_core(void);
 
 #endif

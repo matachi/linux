@@ -112,18 +112,6 @@ static bool is_subset_of(GArray *set1, GArray *set2)
 	return true;
 }
 
-static struct symbol **garray_to_struct(GArray *array)
-{
-	struct symbol **output;
-	int len, i;
-
-	len = array->len * sizeof(struct symbol *);
-	output = (struct symbol **) malloc(len);
-	for (i = 0; i < array->len; ++i)
-		output[i] = g_array_index(array, struct symbol *, i);
-	return output;
-}
-
 static void print_array(char *title, GArray *array)
 {
 	unsigned int i;
@@ -171,9 +159,7 @@ GArray *rangefix_generate_diagnoses(void)
 		print_array("Set configuration", c);
 		/* struct symbol *s = extract_sym("MODULES"); */
 		/* c = g_array_append_val(c, s); */
-		struct symbol **symbols = garray_to_struct(c);
-		satconfig_set_symbols(symbols, c->len);
-		free(symbols);
+		satconfig_set_symbols(c);
 		g_array_free(c, false);
 
 		int a = satconfig_sat();
