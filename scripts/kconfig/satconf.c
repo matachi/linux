@@ -40,13 +40,7 @@ static unsigned int nr_sat_variables;
 
 static PicoSAT *pico;
 
-struct symbol_lit {
-	struct symbol_lit *next;
-	struct symbol *sym;
-	int clause;
-};
-
-static struct symbol_lit *unit_literals = NULL;
+GArray *configuration;
 
 static unsigned int sym_y(struct symbol *sym)
 {
@@ -1158,7 +1152,7 @@ void satconfig_init(const char *Kconfig_file, const char *config,
 	}
 }
 
-struct symbol_lit *satconfig_update_symbol(struct symbol *sym)
+void satconfig_update_symbol(struct symbol *sym)
 {
 	if (sym->type != S_BOOLEAN && sym->type != S_TRISTATE)
 		return;
@@ -1170,26 +1164,22 @@ struct symbol_lit *satconfig_update_symbol(struct symbol *sym)
 	} else if (sym->flags & SYMBOL_CHOICE) {
 		assume = false;
 	} else {
-		struct symbol_lit *o = calloc(1, sizeof(struct symbol_lit *));
-		o->sym = sym;
 		switch (sym->def[S_DEF_SAT].tri) {
 		case no:
-			o->clause = picosat_add_arg(pico, -sym_y(sym), 0);
+			picosat_assume(pico, -sym_y(sym));
 			break;
 		case yes:
-			o->clause = picosat_add_arg(pico, sym_y(sym), 0);
+			picosat_assume(pico, sym_y(sym));
 			if (sym->type == S_TRISTATE)
-				picosat_add_arg(pico, -sym_m(sym), 0);
+				picosat_assume(pico, -sym_m(sym));
 			break;
 		case mod:
 			assert(sym->type == S_TRISTATE);
-			o->clause = picosat_add_arg(pico, sym_y(sym), 0);
-			picosat_add_arg(pico, sym_m(sym), 0);
+			picosat_assume(pico, sym_y(sym));
+			picosat_assume(pico, sym_m(sym));
 			break;
 		}
-		return o;
 	}
-	return NULL;
 
 	/* if (assume) */
 	/* 	picosat_assume(pico, sym_assumed(sym)); */
@@ -1294,69 +1284,32 @@ int satconfig_sat(void)
 	return picosat_sat(pico, -1);
 }
 
-static void free_unit_literals(struct symbol_lit *literal)
-{
-	if (literal->next == NULL) {
-		free(literal);
-	} else {
-		free_unit_literals(literal->next);
-		free(literal);
-	}
-}
-
-int satconfig_push(void)
-{
-	return picosat_push(pico);
-}
-
-int satconfig_pop(void)
-{
-	if (unit_literals != NULL) {
-		free_unit_literals(unit_literals);
-		unit_literals = NULL;
-	}
-	return picosat_pop(pico);
-}
-
 void satconfig_set_symbols(GArray *symbols)
 {
 	int i;
 	struct symbol_lit *literals = NULL, *literal, *last_literal;
 
-	if (unit_literals != NULL) {
-		literals = unit_literals;
-		last_literal = unit_literals;
-		while (last_literal->next) {
-			last_literal = last_literal->next;
-		}
-	}
+	if (configuration != NULL)
+		g_array_free(configuration, false);
+	configuration = symbols;
 
-	for (i = 0; i < symbols->len; ++i) {
-		literal = satconfig_update_symbol(
-			g_array_index(symbols, struct symbol *, i));
-		if (literals == NULL) {
-			literals = literal;
-			unit_literals = literals;
-		} else {
-			last_literal->next = literal;
-		}
-		last_literal = literal;
-	}
+	for (i = 0; i < configuration->len; ++i)
+		satconfig_update_symbol(
+			g_array_index(configuration, struct symbol *, i));
 }
 
 GArray *satconfig_get_core(void)
 {
-	struct symbol_lit *literal;
+	unsigned int i;
+	struct symbol *sym;
 	GArray *output;
 
-	literal = unit_literals;
 	output = g_array_new(FALSE, FALSE, sizeof(struct symbol *));
 
-	while (literal) {
-		if (picosat_coreclause(pico, literal->clause) == 1) {
-			output = g_array_append_val(output, literal->sym);
-		}
-		literal = literal->next;
+	for (i = 0; i < configuration->len; ++i) {
+		sym = g_array_index(configuration, struct symbol *, i);
+		if (picosat_failed_assumption(pico, sym->sat_variable) == 1)
+			output = g_array_append_val(output, sym);
 	}
 	return output;
 }

@@ -166,15 +166,12 @@ GArray *rangefix_generate_diagnoses(void)
 
 		print_array("Select partial diagnosis", E0);
 
-		satconfig_push();
-
 		/* Set constraints C\E0 */
 		GArray *c = set_difference(C, E0);
 		print_array("Soft constraints", c);
 		/* struct symbol *s = extract_sym("MODULES"); */
 		/* c = g_array_append_val(c, s); */
 		satconfig_set_symbols(c);
-		g_array_free(c, false);
 
 		switch (satconfig_sat()) {
 		case SATCONFIG_SATISFIABLE:
@@ -182,7 +179,6 @@ GArray *rangefix_generate_diagnoses(void)
 			E = g_array_remove_index(E, diagnosis_index);
 			R = g_array_append_val(R, E0);
 			print_array("Found diagnosis", E0);
-			satconfig_pop();
 			DEBUG("\n");
 			continue;
 		case SATCONFIG_UNSATISFIABLE:
@@ -196,8 +192,6 @@ GArray *rangefix_generate_diagnoses(void)
 		/* Get unsatisfiable core */
 		X = satconfig_get_core();
 		print_array("Got core", X);
-
-		satconfig_pop();
 
 		E_copy = clone_array(E);
 		for (i = 0; i < E_copy->len; ++i) {
