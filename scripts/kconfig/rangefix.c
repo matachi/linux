@@ -120,14 +120,13 @@ static void print_array(char *title, GArray *array)
 		DEBUG("%s", g_array_index(array, struct symbol *, i)->name);
 		if (i < array->len - 1)
 			DEBUG(", ");
-		else
-			DEBUG("]\n");
 	}
+	DEBUG("]\n");
 }
 
 GArray *rangefix_generate_diagnoses(void)
 {
-	unsigned int i, j, k, diagnos_index;
+	unsigned int i, j, k, diagnosis_index;
 	struct symbol *sym, *x;
 	GArray *C = g_array_new(false, false, sizeof(struct symbol *));
 	GArray *E = g_array_new(false, false, sizeof(GArray *));
@@ -146,32 +145,41 @@ GArray *rangefix_generate_diagnoses(void)
 		false, false, sizeof(struct symbol *));
 	E = g_array_append_val(E, empty_diagnosis);
 
+	DEBUG("===== Generating diagnoses =====\n");
+
 	GRand *rand = g_rand_new();
 	while (E->len > 0) {
-		/* A random diagnosis in E */
-		diagnos_index = g_rand_int_range(rand, 0, E->len);
-		GArray *E0 = g_array_index(E, GArray *, diagnos_index);
+		/* A random partial diagnosis in E */
+		diagnosis_index = g_rand_int_range(rand, 0, E->len);
+		GArray *E0 = g_array_index(E, GArray *, diagnosis_index);
+
+		print_array("Select partial diagnosis", E0);
 
 		satconfig_push();
 
 		/* Set constraints C\E0 */
 		GArray *c = set_difference(C, E0);
-		print_array("Set configuration", c);
+		print_array("Soft constraints", c);
 		/* struct symbol *s = extract_sym("MODULES"); */
 		/* c = g_array_append_val(c, s); */
 		satconfig_set_symbols(c);
 		g_array_free(c, false);
 
-		int a = satconfig_sat();
-
-		/* Check if it is satisfiable */
-		if (a == SATCONFIG_SATISFIABLE) {
+		switch (satconfig_sat()) {
+		case SATCONFIG_SATISFIABLE:
 			DEBUG("Satisfiable\n");
-			E = g_array_remove_index(E, diagnos_index);
+			E = g_array_remove_index(E, diagnosis_index);
 			R = g_array_append_val(R, E0);
+			print_array("Found diagnosis", E0);
+			DEBUG("\n");
 			continue;
+		case SATCONFIG_UNSATISFIABLE:
+			DEBUG("Unatisfiable\n");
+			break;
+		case SATCONFIG_UNKNOWN:
+			DEBUG("Unknown\n");
+			break;
 		}
-		DEBUG("Unatisfiable\n");
 
 		/* Get unsatisfiable core */
 		X = satconfig_get_core();
@@ -182,12 +190,15 @@ GArray *rangefix_generate_diagnoses(void)
 		for (i = 0; i < E->len; ++i) {
 			/* Get a partial diagnosis */
 			e = g_array_index(E, GArray *, i);
+			print_array("Look at partial diagnosis", e);
 
 			/* If there's already an intersection between the core
 			 * and the partial diagnosis, there's nothing more to
 			 * be done. */
-			if (has_intersection(X, e))
+			if (has_intersection(X, e)) {
+				DEBUG("Intersection with core.\n");
 				continue;
+			}
 
 			/* For each symbol in the core */
 			for (j = 0; j < X->len; ++j) {
@@ -215,6 +226,8 @@ GArray *rangefix_generate_diagnoses(void)
 					/* E" ⊆ E' */
 					if (is_subset_of(E2, E1)) {
 						E2_subset_of_E1 = true;
+						print_array("E\"", E2);
+						print_array("E'", E1);
 						break;
 					}
 				}
@@ -223,23 +236,28 @@ GArray *rangefix_generate_diagnoses(void)
 				if (!E2_subset_of_E1) {
 					/* E = E ∪ {E'} */
 					E = g_array_append_val(E, E1);
+					print_array(
+						"Add partial diagnosis", E1);
 				}
 
 			}
 
+			print_array("Remove partial diagnosis", e);
 			g_array_free(e, false);
 			g_array_remove_index(E, i);
 			--i;
 		}
 
 		g_array_free(X, false);
+
+		DEBUG("\n");
 	}
 
 	DEBUG("R length: %i\n", R->len);
 	DEBUG("E length: %i\n", E->len);
 
 	for (i = 0; i < R->len; ++i) {
-		print_array("Diagnos", g_array_index(R, GArray *, i));
+		print_array("Diagnosis", g_array_index(R, GArray *, i));
 	}
 
 	g_array_free(C, false);
