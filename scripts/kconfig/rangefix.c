@@ -182,6 +182,7 @@ GArray *rangefix_generate_diagnoses(void)
 			E = g_array_remove_index(E, diagnosis_index);
 			R = g_array_append_val(R, E0);
 			print_array("Found diagnosis", E0);
+			satconfig_pop();
 			DEBUG("\n");
 			continue;
 		case SATCONFIG_UNSATISFIABLE:
