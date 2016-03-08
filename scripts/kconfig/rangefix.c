@@ -112,6 +112,17 @@ static bool is_subset_of(GArray *set1, GArray *set2)
 	return true;
 }
 
+static GArray *clone_array(GArray *array)
+{
+	unsigned int i;
+	GArray *output;
+
+	output = g_array_new(false, false, sizeof(void *));
+	for (i = 0; i < array->len; ++i)
+		g_array_append_val(output, g_array_index(array, void *, i));
+	return output;
+}
+
 static void print_array(char *title, GArray *array)
 {
 	unsigned int i;
@@ -131,7 +142,7 @@ GArray *rangefix_generate_diagnoses(void)
 	GArray *C = g_array_new(false, false, sizeof(struct symbol *));
 	GArray *E = g_array_new(false, false, sizeof(GArray *));
 	GArray *R = g_array_new(false, false, sizeof(GArray *));
-	GArray *e, *X, *E1, *E2, *x_set, *E_R_union;
+	GArray *e, *X, *E1, *E2, *x_set, *E_R_union, *E_copy;
 
 	/* Create constraint set C */
 	for_all_symbols(i, sym) {
@@ -187,9 +198,10 @@ GArray *rangefix_generate_diagnoses(void)
 
 		satconfig_pop();
 
-		for (i = 0; i < E->len; ++i) {
+		E_copy = clone_array(E);
+		for (i = 0; i < E_copy->len; ++i) {
 			/* Get a partial diagnosis */
-			e = g_array_index(E, GArray *, i);
+			e = g_array_index(E_copy, GArray *, i);
 			print_array("Look at partial diagnosis", e);
 
 			/* If there's already an intersection between the core
@@ -213,7 +225,7 @@ GArray *rangefix_generate_diagnoses(void)
 				E1 = set_union(e, x_set);
 
 				/* Create (E\e) ∪ R */
-				E_R_union = set_union(E, R);
+				E_R_union = set_union(E_copy, R);
 				g_array_remove_index(E_R_union, i);
 
 				bool E2_subset_of_E1 = false;
@@ -245,9 +257,11 @@ GArray *rangefix_generate_diagnoses(void)
 			print_array("Remove partial diagnosis", e);
 			g_array_free(e, false);
 			g_array_remove_index(E, i);
+			g_array_remove_index(E_copy, i);
 			--i;
 		}
 
+		g_array_free(E_copy, false);
 		g_array_free(X, false);
 
 		DEBUG("\n");
