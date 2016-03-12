@@ -27,8 +27,7 @@ START_TEST(test_generate_diagnoses)
 	/* There are 4 minimal unsatisfiable cores in this test:
 	 *
 	 * - [64BIT, DRIVER1]
-	 * - [DRIVER2, DRIVER4]
-	 * - [DRIVER2, DRIVER5]
+	 * - [DRIVER2, DRIVER4, DRIVER5]
 	 * - [DRIVER3, DRIVER5]
 	 *
 	 * A diagnosis covers at least one variable in each core. In this case
@@ -40,11 +39,11 @@ START_TEST(test_generate_diagnoses)
 
 	ck_assert_int_eq(diagnoses->len, 6);
 	assert_diagnosis_present(diagnoses, 3, "64BIT", "DRIVER2", "DRIVER3");
-	assert_diagnosis_present(diagnoses, 3, "64BIT", "DRIVER2", "DRIVER5");
-	assert_diagnosis_present(diagnoses, 3, "64BIT", "DRIVER4", "DRIVER5");
+	assert_diagnosis_present(diagnoses, 3, "64BIT", "DRIVER3", "DRIVER4");
+	assert_diagnosis_present(diagnoses, 2, "64BIT", "DRIVER5");
 	assert_diagnosis_present(diagnoses, 3, "DRIVER1", "DRIVER2", "DRIVER3");
-	assert_diagnosis_present(diagnoses, 3, "DRIVER1", "DRIVER2", "DRIVER5");
-	assert_diagnosis_present(diagnoses, 3, "DRIVER1", "DRIVER4", "DRIVER5");
+	assert_diagnosis_present(diagnoses, 3, "DRIVER1", "DRIVER3", "DRIVER4");
+	assert_diagnosis_present(diagnoses, 2, "DRIVER1", "DRIVER5");
 }
 END_TEST
 

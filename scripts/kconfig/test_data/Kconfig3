@@ -11,7 +11,7 @@ config DRIVER1
 
 config DRIVER2
   tristate "DRIVER2"
-  depends on DRIVER3 && DRIVER4
+  depends on DRIVER3 || DRIVER4
 
 config DRIVER3
   tristate "DRIVER3"
