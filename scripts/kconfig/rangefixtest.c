@@ -6,10 +6,13 @@
 #define test_data(str) "scripts/kconfig/test_data/" str
 
 static void assert_diagnosis_present(GArray *diagnoses, unsigned int n, ...);
+static void assert_constraint_present(GArray *constraints, char *constraint);
 
 START_TEST(test_load_config)
 {
-	ck_assert_int_eq(rangefix_init(test_data("Kconfig1"), NULL), 1);
+	ck_assert_int_eq(
+		rangefix_init(test_data("Kconfig1"), NULL),
+		EXIT_SUCCESS);
 	struct menu *m = &rootmenu;
 	ck_assert(m);
 	m = m->list;
@@ -47,10 +50,32 @@ START_TEST(test_generate_diagnoses)
 }
 END_TEST
 
-START_TEST(test_run)
+START_TEST(test_get_constraints)
 {
+	/* The Kconfig file contains 4 attributes that give rise to logical
+	 * constraints:
+	 *
+	 * - B has a prompt and 2 selects.
+	 * - C has a prompt.
+	 *
+	 * The following config option does not give rise to a constraint:
+	 *
+	 * - D's prompt is always visible.
+	 */
+	GArray *constraints;
+
 	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
-	rangefix_run("B", yes);
+	constraints = rangefix_get_constraints();
+
+	ck_assert_int_eq(constraints->len, 4);
+	assert_constraint_present(
+		constraints, "!B [=n] || E [=n]");
+	assert_constraint_present(
+		constraints, "!(B [=n] && E [=n]) || A [=n]");
+	assert_constraint_present(
+		constraints, "!(B [=n] && E [=n] && A [=n]) || D [=n]");
+	assert_constraint_present(
+		constraints, "!(B [=n] && E [=n]) || A [=n]");
 }
 END_TEST
 
@@ -62,7 +87,7 @@ Suite *test_suite(void) {
 
 	tcase_add_test(tc_core, test_load_config);
 	tcase_add_test(tc_core, test_generate_diagnoses);
-	tcase_add_test(tc_core, test_run);
+	tcase_add_test(tc_core, test_get_constraints);
 
 	return s;
 }
@@ -126,4 +151,28 @@ static void assert_diagnosis_present(GArray *diagnoses, unsigned int n, ...) {
 	ck_assert(false);
 deallocate:
 	g_array_free(input, false);
+}
+
+/* Check if a constraint is present in the constraints array.
+ *
+ * An example call:
+ *     assert_constraint_present(constraints, "!B [=n] || E [=n]");
+ */
+static void assert_constraint_present(GArray *constraints, char *constraint) {
+	unsigned int i;
+	struct expr *expr;
+	struct gstr str;
+
+	for (i = 0; i < constraints->len; ++i) {
+		expr = g_array_index(constraints, struct expr *, i);
+
+		str = str_new();
+		expr_gstr_print(expr, &str);
+		if (g_strcmp0(str_get(&str), constraint) == 0) {
+			str_free(&str);
+			return;
+		}
+		str_free(&str);
+	}
+	ck_assert(false);
 }

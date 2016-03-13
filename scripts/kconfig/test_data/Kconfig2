@@ -3,12 +3,22 @@ config MODULES
   option modules
 
 config A
-  bool "A"
-  depends on B
+  tristate
 
 config B
-  bool "B"
+  bool "B prompt"
+  select A
+  default y
+  select D if A
+  depends on E
 
 config C
-  bool "C"
-  depends on !B
+  tristate "C prompt"
+  depends on A && !B
+
+config D
+  bool
+  prompt "D prompt"
+
+config E
+  bool

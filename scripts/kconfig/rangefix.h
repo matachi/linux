@@ -7,5 +7,6 @@
 int rangefix_init(const char *, const char*);
 int rangefix_run(const char *sym, tristate val);
 GArray *rangefix_generate_diagnoses(void);
+GArray *rangefix_get_constraints(void);
 
 #endif

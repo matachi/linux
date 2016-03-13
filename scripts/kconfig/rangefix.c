@@ -275,6 +275,99 @@ GArray *rangefix_generate_diagnoses(void)
 	return R;
 }
 
+static void print_expr(struct expr *expr)
+{
+	struct gstr str = str_new();
+	expr_gstr_print(expr, &str);
+	DEBUG("%s\n", str_get(&str));
+	str_free(&str);
+}
+
+static struct expr *construct_prompt_constraint(
+	struct symbol *sym, struct property *prop
+) {
+	struct expr *expr;
+
+	if (!prop->visible.expr)
+		return NULL;
+	DEBUG("Look at prompt \"%s\"\n", prop->text);
+
+	expr = malloc(sizeof(struct expr));
+	expr->type = E_OR;
+	expr->left.expr = malloc(sizeof(struct expr));
+	expr->left.expr->type = E_NOT;
+	expr->left.expr->left.expr = malloc(sizeof(struct expr));
+	expr->left.expr->left.expr->type = E_SYMBOL;
+	expr->left.expr->left.expr->left.sym = sym;
+	expr->right.expr = expr_copy(prop->visible.expr);
+
+	print_expr(expr);
+
+	return expr;
+}
+
+static struct expr *construct_select_constraint(
+	struct symbol *sym, struct property *prop
+) {
+	struct expr *expr;
+
+	if (!prop->visible.expr)
+		return NULL;
+	DEBUG("Look at select for %s\n", sym->name);
+
+	expr = malloc(4 * sizeof(struct expr));
+	expr->type = E_OR;
+	expr->left.expr = &expr[1];
+	expr->left.expr->type = E_NOT;
+	expr->left.expr->left.expr = &expr[2];
+	expr->left.expr->left.expr->type = E_AND;
+	expr->left.expr->left.expr->left.expr = &expr[3];
+	expr->left.expr->left.expr->left.expr->type = E_SYMBOL;
+	expr->left.expr->left.expr->left.expr->left.sym = sym;
+	expr->left.expr->left.expr->right.expr = expr_copy(prop->visible.expr);
+	expr->right.expr = expr_copy(prop->expr);
+
+	print_expr(expr);
+
+	return expr;
+}
+
+GArray *rangefix_get_constraints(void)
+{
+	unsigned int i;
+	struct symbol *sym;
+	struct property *prop;
+	GArray *constraints;
+	struct expr *expr;
+
+	constraints = g_array_new(false, false, sizeof(struct expr *));
+
+	DEBUG("===== Getting constraints =====\n");
+
+	for_all_symbols(i, sym) {
+		if (sym->type != S_BOOLEAN && sym->type != S_TRISTATE)
+			continue;
+		DEBUG("Look at symbol %s\n", sym->name);
+		for (prop = sym->prop; prop; prop = prop->next) {
+			expr = NULL;
+			switch (prop->type) {
+			case P_PROMPT:
+				expr = construct_prompt_constraint(sym, prop);
+				break;
+			case P_SELECT:
+				expr = construct_select_constraint(sym, prop);
+				break;
+			}
+			if (expr != NULL)
+				constraints = g_array_append_val(
+					constraints, expr);
+		}
+		DEBUG("\n");
+	}
+
+	return constraints;
+}
+
 int rangefix_init(const char *kconfig_file, const char *config)
 {
 	setlocale(LC_ALL, "");
@@ -285,12 +378,13 @@ int rangefix_init(const char *kconfig_file, const char *config)
 	conf_read_simple(config, S_DEF_USER);
 	conf_read_simple(config, S_DEF_SAT);
 
-	return 1;
+	return EXIT_SUCCESS;
 }
 
 int rangefix_run(const char *config, tristate val)
 {
 	struct symbol *sym = extract_sym(config);
-	rangefix_generate_diagnoses();
-	return 1;
+	GArray *diagnoses = rangefix_generate_diagnoses();
+	GArray *constraints = rangefix_get_constraints();
+	return EXIT_SUCCESS;
 }
