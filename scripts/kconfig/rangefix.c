@@ -368,6 +368,73 @@ GArray *rangefix_get_constraints(void)
 	return constraints;
 }
 
+struct expr *rangefix_to_one_constraint(GArray *constraints)
+{
+	unsigned int i;
+	struct expr *expr, *new_expr;
+
+	if (constraints->len == 0)
+		return NULL;
+	if (constraints->len == 1)
+		return g_array_index(constraints, struct expr *, 0);
+
+	expr = g_array_index(constraints, struct expr *, 0);
+	for (i = 1; i < constraints->len; ++i) {
+		new_expr = malloc(sizeof(struct expr));
+		new_expr->type = E_AND;
+		new_expr->left.expr = expr;
+		new_expr->right.expr = g_array_index(
+			constraints, struct expr *, i);
+		expr = new_expr;
+	}
+	return expr;
+}
+
+static void replace_symbols(struct expr *expr, GArray *diagnosis)
+{
+	switch (expr->type) {
+	case E_SYMBOL:
+		{
+			unsigned int i;
+			struct symbol *sym;
+			for (i = 0; i < diagnosis->len; ++i) {
+				sym = g_array_index(
+					diagnosis, struct symbol *, i);
+				if (sym == expr->left.sym)
+					return;
+			}
+			expr->left.sym = &symbol_yes;
+		}
+		break;
+	case E_EQUAL:
+	case E_GEQ:
+	case E_GTH:
+	case E_LEQ:
+	case E_LTH:
+	case E_UNEQUAL:
+	case E_AND:
+	case E_OR:
+	case E_LIST:
+		replace_symbols(expr->right.expr, diagnosis);
+	case E_NOT:
+		replace_symbols(expr->left.expr, diagnosis);
+		break;
+	}
+}
+
+struct expr *rangefix_get_modified_constraint(
+	struct expr *constraint, GArray *diagnosis
+) {
+	unsigned int i;
+	struct expr *expr;
+	struct symbol *sym;
+
+	DEBUG("===== Getting modified constraints =====\n");
+
+	replace_symbols(constraint, diagnosis);
+	return constraint;
+}
+
 int rangefix_init(const char *kconfig_file, const char *config)
 {
 	setlocale(LC_ALL, "");

@@ -3,7 +3,7 @@ config MODULES
   option modules
 
 config A
-  tristate
+  tristate "A"
 
 config B
   bool "B prompt"
@@ -21,4 +21,4 @@ config D
   prompt "D prompt"
 
 config E
-  bool
+  bool "E"

@@ -79,6 +79,38 @@ START_TEST(test_get_constraints)
 }
 END_TEST
 
+START_TEST(test_get_modified_constraint)
+{
+	GArray *constraints, *diagnoses, *diagnosis;
+	struct expr *constraint, *modified_constraint;
+	struct gstr str;
+
+	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
+	diagnoses = rangefix_generate_diagnoses();
+	constraints = rangefix_get_constraints();
+	constraint = rangefix_to_one_constraint(constraints);
+	diagnosis = g_array_index(diagnoses, GArray *, 0);
+	if (g_strcmp0(
+		g_array_index(diagnosis, struct symbol *, 0)->name,
+		"C"
+	) != 0)
+		diagnosis = g_array_index(diagnoses, GArray *, 1);
+
+	modified_constraint = rangefix_get_modified_constraint(
+		constraint, diagnosis);
+
+	str = str_new();
+	expr_gstr_print(modified_constraint, &str);
+	ck_assert_str_eq(
+		str_get(&str),
+		"(!y || y) && "
+		"(!(y && y) || y) && "
+		"(!(y && y && y) || y) && "
+		"(!C [=n] || y && !y)");
+	str_free(&str);
+}
+END_TEST
+
 Suite *test_suite(void);
 Suite *test_suite(void) {
 	Suite *s = suite_create("RangeFix");
@@ -88,6 +120,7 @@ Suite *test_suite(void) {
 	tcase_add_test(tc_core, test_load_config);
 	tcase_add_test(tc_core, test_generate_diagnoses);
 	tcase_add_test(tc_core, test_get_constraints);
+	tcase_add_test(tc_core, test_get_modified_constraint);
 
 	return s;
 }
