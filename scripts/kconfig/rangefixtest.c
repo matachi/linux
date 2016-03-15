@@ -111,6 +111,22 @@ START_TEST(test_get_modified_constraint)
 }
 END_TEST
 
+START_TEST(test_get_fixes)
+{
+	/* It is possible to solve the configuration in two different ways.
+	 * Either by assigning n to B, or by assigning n to C.
+	 */
+	GArray *fixes;
+
+	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
+	fixes = rangefix_get_fixes();
+
+	ck_assert_int_eq(fixes->len, 2);
+	assert_constraint_present(fixes, "!B [=n]");
+	assert_constraint_present(fixes, "!C [=n]");
+}
+END_TEST
+
 Suite *test_suite(void);
 Suite *test_suite(void) {
 	Suite *s = suite_create("RangeFix");
@@ -121,6 +137,7 @@ Suite *test_suite(void) {
 	tcase_add_test(tc_core, test_generate_diagnoses);
 	tcase_add_test(tc_core, test_get_constraints);
 	tcase_add_test(tc_core, test_get_modified_constraint);
+	tcase_add_test(tc_core, test_get_fixes);
 
 	return s;
 }

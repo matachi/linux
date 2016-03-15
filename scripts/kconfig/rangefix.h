@@ -11,5 +11,6 @@ GArray *rangefix_get_constraints(void);
 struct expr *rangefix_to_one_constraint(GArray *constraints);
 struct expr *rangefix_get_modified_constraint(
 	struct expr *constraints, GArray *diagnosis);
+GArray *rangefix_get_fixes(void);
 
 #endif

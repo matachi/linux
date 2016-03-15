@@ -435,6 +435,122 @@ struct expr *rangefix_get_modified_constraint(
 	return constraint;
 }
 
+static inline int expr_is_mod(struct expr *e)
+{
+	return !e || (e->type == E_SYMBOL && e->left.sym == &symbol_mod);
+}
+
+static inline int expr_is_pos(struct expr *e)
+{
+	return expr_is_yes(e) || expr_is_mod(e);
+}
+
+void simplify_expr(struct expr *e)
+{
+	struct expr *l, *r;
+	struct symbol *sym;
+
+	if (e == NULL || e->type == E_SYMBOL)
+		return;
+
+	simplify_expr(e->left.expr);
+	l = e->left.expr;
+
+	switch (e->type) {
+	case E_NOT:
+		if (expr_is_pos(l)) {
+			e->type = E_SYMBOL;
+			e->left.sym = &symbol_no;
+			expr_free(l);
+		} else if (expr_is_no(l)) {
+			e->type = E_SYMBOL;
+			e->left.sym = &symbol_yes;
+			expr_free(l);
+		}
+		return;
+	}
+
+	simplify_expr(e->right.expr);
+	r = e->right.expr;
+
+	switch (e->type) {
+	case E_AND:
+		if (expr_is_pos(l) && expr_is_pos(r)) {
+			e->type = E_SYMBOL;
+			e->left.sym = &symbol_yes;
+			expr_free(l);
+			expr_free(r);
+		} else if (expr_is_no(l) || expr_is_no(r)) {
+			e->type = E_SYMBOL;
+			e->left.sym = &symbol_no;
+			expr_free(l);
+			expr_free(r);
+		} else if (expr_is_yes(l)) {
+			e->type = r->type;
+			e->left = r->left;
+			e->right = r->right;
+			expr_free(l);
+		} else if (expr_is_yes(r)) {
+			e->type = l->type;
+			e->left = l->left;
+			e->right = l->right;
+			expr_free(r);
+		}
+		return;
+	case E_OR:
+		if (expr_is_pos(l) || expr_is_pos(r)) {
+			e->type = E_SYMBOL;
+			e->left.sym = &symbol_yes;
+			expr_free(l);
+			expr_free(r);
+		} else if (expr_is_no(l) && expr_is_no(r)) {
+			e->type = E_SYMBOL;
+			e->left.sym = &symbol_no;
+			expr_free(l);
+			expr_free(r);
+		} else if (expr_is_no(l)) {
+			e->type = r->type;
+			e->left = r->left;
+			e->right = r->right;
+			expr_free(l);
+		} else if (expr_is_no(r)) {
+			e->type = l->type;
+			e->left = l->left;
+			e->right = l->right;
+			expr_free(r);
+		}
+		return;
+	}
+}
+
+static struct expr *get_fix(struct expr *constraint, GArray *diagnosis)
+{
+	rangefix_get_modified_constraint(constraint, diagnosis);
+	simplify_expr(constraint);
+	return constraint;
+}
+
+GArray *rangefix_get_fixes()
+{
+	unsigned int i;
+	GArray *constraints, *diagnoses, *diagnosis, *fixes;
+	struct expr *constraint, *modified_constraint, *fix;
+
+	diagnoses = rangefix_generate_diagnoses();
+	constraints = rangefix_get_constraints();
+	constraint = rangefix_to_one_constraint(constraints);
+
+	fixes = g_array_new(false, false, sizeof(struct expr *));
+
+	for (i = 0; i < diagnoses->len; ++i) {
+		diagnosis = g_array_index(diagnoses, GArray *, i);
+		fix = get_fix(expr_copy(constraint), diagnosis);
+		fixes = g_array_append_val(fixes, fix);
+	}
+
+	return fixes;
+}
+
 int rangefix_init(const char *kconfig_file, const char *config)
 {
 	setlocale(LC_ALL, "");
