@@ -182,7 +182,7 @@ GArray *rangefix_generate_diagnoses(void)
 			DEBUG("\n");
 			continue;
 		case SATCONFIG_UNSATISFIABLE:
-			DEBUG("Unatisfiable\n");
+			DEBUG("Unsatisfiable\n");
 			break;
 		case SATCONFIG_UNKNOWN:
 			DEBUG("Unknown\n");
