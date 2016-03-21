@@ -181,9 +181,15 @@ GArray *rangefix_generate_diagnoses(void)
 		switch (satconfig_sat()) {
 		case SATCONFIG_SATISFIABLE:
 			DEBUG("Satisfiable\n");
+			print_array("Found diagnosis", E0);
+
+			E0 = satconfig_minimize_diagnosis(c, E0);
+			print_array("Simplified diagnosis", E0);
+
 			E = g_array_remove_index(E, diagnosis_index);
 			R = g_array_append_val(R, E0);
-			print_array("Found diagnosis", E0);
+
+			g_array_free(c, false);
 			DEBUG("\n");
 			continue;
 		case SATCONFIG_UNSATISFIABLE:
@@ -263,6 +269,7 @@ GArray *rangefix_generate_diagnoses(void)
 
 		g_array_free(E_copy, false);
 		g_array_free(X, false);
+		g_array_free(c, false);
 
 		DEBUG("\n");
 	}
