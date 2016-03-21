@@ -23,6 +23,20 @@ static struct symbol *extract_sym(const char *config)
 	return NULL;
 }
 
+static tristate extract_tristate(const char *val)
+{
+	unsigned int i;
+
+	val = g_ascii_strdown(val, -1);
+	if (g_strcmp0(val, "no") == 0)
+		return no;
+	else if (g_strcmp0(val, "mod") == 0)
+		return mod;
+	else if (g_strcmp0(val, "yes") == 0)
+		return yes;
+	return -1;
+}
+
 static GArray *set_difference(GArray *set1, GArray *set2)
 {
 	int i = 0, j;
@@ -576,16 +590,37 @@ int rangefix_init(const char *kconfig_file, const char *config)
 	textdomain(PACKAGE);
 
 	satconfig_init(kconfig_file, config, false);
-	conf_read_simple(config, S_DEF_USER);
-	conf_read_simple(config, S_DEF_SAT);
+	conf_read(config);
+	conf_read(NULL);
 
 	return EXIT_SUCCESS;
 }
 
-int rangefix_run(const char *config, tristate val)
+int rangefix_run(const char *config, const char *val)
 {
-	struct symbol *sym = extract_sym(config);
-	GArray *diagnoses = rangefix_generate_diagnoses();
-	GArray *constraints = rangefix_get_constraints();
+	unsigned int i;
+	struct symbol *sym;
+	tristate tri;
+	GArray *fixes;
+
+	sym = extract_sym(config);
+	if (sym == NULL) {
+		fprintf(stderr, "Unknown config name.\n.");
+		return EXIT_FAILURE;
+	}
+	sym->flags |= SYMBOL_DEF_USER;
+	sym->flags |= SYMBOL_SAT;
+	tri = extract_tristate(val);
+	if (tri == -1) {
+		fprintf(stderr, "Unknown tristate value.\n.");
+		return EXIT_FAILURE;
+	}
+	sym->curr.tri = tri;
+
+	fixes = rangefix_get_fixes();
+
+	for (i = 0; i < fixes->len; ++i)
+		print_expr(g_array_index(fixes, struct expr *,  1));
+
 	return EXIT_SUCCESS;
 }
