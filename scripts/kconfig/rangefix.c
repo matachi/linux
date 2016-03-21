@@ -126,9 +126,14 @@ static GArray *clone_array(GArray *array)
 static void print_array(char *title, GArray *array)
 {
 	unsigned int i;
+	struct symbol *sym;
 	DEBUG("%s: [", title);
 	for (i = 0; i < array->len; ++i) {
-		DEBUG("%s", g_array_index(array, struct symbol *, i)->name);
+		sym = g_array_index(array, struct symbol *, i);
+		if (sym->name != NULL)
+			DEBUG("%s", sym->name);
+		else
+			DEBUG("NO_NAME");
 		if (i < array->len - 1)
 			DEBUG(", ");
 	}
