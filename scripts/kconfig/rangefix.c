@@ -151,7 +151,12 @@ GArray *rangefix_generate_diagnoses(void)
 
 	/* Create constraint set C */
 	for_all_symbols(i, sym) {
-		if (sym->flags & SYMBOL_DEF_USER) {
+		if ((sym->type == S_BOOLEAN || sym->type == S_TRISTATE) &&
+		    sym->name) {
+			/* Include all bools and tristates that have names in
+			 * the configuration. These are all supported symbols
+			 * that the user may specify in the .config file.
+			 */
 			C = g_array_append_val(C, sym);
 		}
 	}
@@ -462,7 +467,8 @@ void simplify_expr(struct expr *e)
 	struct expr *l, *r;
 	struct symbol *sym;
 
-	if (e == NULL || e->type == E_SYMBOL)
+	if (e == NULL ||
+	    (e->type != E_NOT && e->type != E_AND && e->type != E_OR))
 		return;
 
 	simplify_expr(e->left.expr);
