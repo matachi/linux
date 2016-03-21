@@ -71,6 +71,12 @@ static unsigned int sym_selected(struct symbol *sym)
 	return sym->sat_variable + (sym->type == S_TRISTATE) + 2;
 }
 
+static unsigned int sym_forced(struct symbol *sym)
+{
+	assert(sym->type == S_BOOLEAN || sym->type == S_TRISTATE);
+	return sym->sat_variable + (sym->type == S_TRISTATE) + 3;
+}
+
 static const char **clauses;
 static unsigned int max_clauses;
 
@@ -93,10 +99,10 @@ void satconf_assign_sat_variables(void)
 
 		switch (sym->type) {
 		case S_BOOLEAN:
-			nr_symbol_variables += 3;
+			nr_symbol_variables += 4;
 			break;
 		case S_TRISTATE:
-			nr_symbol_variables += 4;
+			nr_symbol_variables += 5;
 			break;
 		default:
 			break;
@@ -120,7 +126,8 @@ void satconf_assign_sat_variables(void)
 		case S_BOOLEAN:
 			DEBUG("var %d = bool symbol %s\n", variable, sym->name ?: "<unknown>");
 			sym->sat_variable = variable;
-			variable += 3;
+			variable += 4;
+			symbol_variables[symbol_variable++] = sym;
 			symbol_variables[symbol_variable++] = sym;
 			symbol_variables[symbol_variable++] = sym;
 			symbol_variables[symbol_variable++] = sym;
@@ -128,7 +135,8 @@ void satconf_assign_sat_variables(void)
 		case S_TRISTATE:
 			DEBUG("var %d = tristate symbol %s\n", variable, sym->name ?: "<unknown>");
 			sym->sat_variable = variable;
-			variable += 4;
+			variable += 5;
+			symbol_variables[symbol_variable++] = sym;
 			symbol_variables[symbol_variable++] = sym;
 			symbol_variables[symbol_variable++] = sym;
 			symbol_variables[symbol_variable++] = sym;
@@ -964,6 +972,37 @@ static bool build_default_clauses(struct symbol *sym)
 	return true;
 }
 
+static bool build_force_non_user_value_clauses(struct symbol *sym)
+{
+	/* Build a clause that makes it possible to easily force the symbol to
+	 * not get its value from the user. This means by setting the
+	 * sym_forced(sym) variable to true the symbol will have to rely on its
+	 * default or selected value.
+	 */
+	struct bool_expr *cond, *t1;
+	struct property *prop;
+	if (!(sym->flags & SYMBOL_CHOICEVAL)) {
+		cond = bool_const(false);
+		for_all_defaults(sym, prop)
+			cond = bool_or_put(cond, bool_var(prop->sat_variable));
+		cond = bool_or_put(cond, bool_var(sym_selected(sym)));
+		t1 = bool_dep_put(bool_var(sym_forced(sym)), cond);
+		add_clauses(t1, "%s force default or selected",
+			sym->name ?: "<choice>");
+		bool_put(t1);
+	} else {
+		/* Force the choice's value to false, which means that one of
+		 * the other choices in the group has to be set to true or mod
+		 * instead.
+		 */
+		cond = bool_var(-sym_y(sym));
+		t1 = bool_dep_put(bool_var(sym_forced(sym)), cond);
+		add_clauses(t1, "%s force y", sym->name ?: "<choice>");
+		bool_put(t1);
+	}
+	return true;
+}
+
 static void build_symbol_clauses(struct symbol *sym)
 {
 	/* A symbol can only be enabled (true) if:
@@ -1030,6 +1069,9 @@ static bool build_clauses(void)
 		}
 
 		if (!build_sym_select_clauses(sym))
+			return false;
+
+		if (!build_force_non_user_value_clauses(sym))
 			return false;
 
 		build_symbol_clauses(sym);
