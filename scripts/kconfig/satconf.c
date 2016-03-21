@@ -1320,8 +1320,7 @@ int satconfig_sat(void)
 
 void satconfig_set_symbols(GArray *symbols)
 {
-	int i;
-	struct symbol_lit *literals = NULL, *literal, *last_literal;
+	unsigned int i;
 
 	configuration = symbols;
 
