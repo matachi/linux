@@ -26,5 +26,6 @@ int satconfig_pop(void);
 int satconfig_sat(void);
 void satconfig_set_symbols(GArray *symbols);
 GArray *satconfig_get_core(void);
+GArray *satconfig_minimize_diagnosis(GArray *configuration, GArray *diagnosis);
 
 #endif

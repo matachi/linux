@@ -1199,28 +1199,20 @@ void satconfig_update_symbol(struct symbol *sym)
 	if (sym->type != S_BOOLEAN && sym->type != S_TRISTATE)
 		return;
 
-	bool assume = true;
-
-	if (!(sym->flags & SYMBOL_SAT)) {
-		assume = false;
-	} else if (sym->flags & SYMBOL_CHOICE) {
-		assume = false;
-	} else {
-		switch (sym->def[S_DEF_SAT].tri) {
-		case no:
-			picosat_assume(pico, -sym_y(sym));
-			break;
-		case yes:
-			picosat_assume(pico, sym_y(sym));
-			if (sym->type == S_TRISTATE)
-				picosat_assume(pico, -sym_m(sym));
-			break;
-		case mod:
-			assert(sym->type == S_TRISTATE);
-			picosat_assume(pico, sym_y(sym));
-			picosat_assume(pico, sym_m(sym));
-			break;
-		}
+	switch (sym->curr.tri) {
+	case no:
+		picosat_assume(pico, -sym_y(sym));
+		break;
+	case yes:
+		picosat_assume(pico, sym_y(sym));
+		if (sym->type == S_TRISTATE)
+			picosat_assume(pico, -sym_m(sym));
+		break;
+	case mod:
+		assert(sym->type == S_TRISTATE);
+		picosat_assume(pico, sym_y(sym));
+		picosat_assume(pico, sym_m(sym));
+		break;
 	}
 
 	/* if (assume) */
@@ -1331,8 +1323,6 @@ void satconfig_set_symbols(GArray *symbols)
 	int i;
 	struct symbol_lit *literals = NULL, *literal, *last_literal;
 
-	if (configuration != NULL)
-		g_array_free(configuration, false);
 	configuration = symbols;
 
 	for (i = 0; i < configuration->len; ++i)
@@ -1354,4 +1344,72 @@ GArray *satconfig_get_core(void)
 			output = g_array_append_val(output, sym);
 	}
 	return output;
+}
+
+GArray *satconfig_minimize_diagnosis(GArray *configuration, GArray *diagnosis)
+{
+	/* Delete symbols from the diagnosis that the user does not need to
+	 * explicitly set himself (i.e. their default or selected values are
+	 * enough).
+	 */
+	unsigned int i, j;
+	struct symbol *sym, *sym2;
+
+	/* Iterate through the symbols in the diagnosis. If a choiceval is
+	 * found, then remove its siblings from the configuration. Otherwise
+	 * the siblings will be locked down and the only one that can be
+	 * changed is the one in the diagnosis, which means that the choiceval
+	 * will always be interpreted as enquired to be set by the user.
+	 */
+	for (i = 0; i < diagnosis->len; ++i) {
+		sym = g_array_index(diagnosis, struct symbol *, i);
+		if (!(sym->flags & SYMBOL_CHOICEVAL)) {
+			continue;
+		}
+		/* Get the first menu holding a sibling choiceval. */
+		struct menu *m = sym->prop->menu->parent->list;
+		while (m) {
+			sym = m->sym;
+			for (j = 0; j < configuration->len; ++j) {
+				sym2 = g_array_index(
+					configuration, struct symbol *, j);
+				if (sym == sym2) {
+					g_array_remove_index(configuration, j);
+					--j;
+				}
+			}
+			m = m->next;
+		}
+	}
+
+	/* Loop through the symbols in the diagnosis. For each symbol, see if
+	 * it is possible to set the configuration */
+	for (i = 0; i < diagnosis->len; ++i) {
+		sym = g_array_index(diagnosis, struct symbol *, i);
+
+		/* Lock the configuration */
+		satconfig_set_symbols(configuration);
+
+		/* Force this symbol to get its value implicitly */
+		picosat_assume(pico, sym_forced(sym));
+
+		switch (satconfig_sat()) {
+		case SATCONFIG_SATISFIABLE:
+			DEBUG("SAT\n");
+			/* The symbols in the diagnosis are still satisfiable,
+			 * which means that this symbol is superfluous and does
+			 * not need to be set explicitly by the user.
+			 */
+			diagnosis = g_array_remove_index(diagnosis, i--);
+			break;
+		case SATCONFIG_UNSATISFIABLE:
+			DEBUG("UNSAT\n");
+			break;
+		case SATCONFIG_UNKNOWN:
+			DEBUG("Unknown\n");
+			break;
+		}
+	}
+
+	return diagnosis;
 }
