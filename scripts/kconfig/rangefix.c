@@ -476,6 +476,31 @@ struct expr *rangefix_get_modified_constraint(
 	return constraint;
 }
 
+GArray *remove_constraints(GArray *constraints, GArray *diagnosis)
+{
+	unsigned int i, j;
+	struct expr *expr;
+	struct symbol *sym;
+	bool constraint_contains_diagnosis;
+
+	for (i = 0; i < constraints->len; ++i) {
+		expr = g_array_index(constraints, struct expr *, i);
+		constraint_contains_diagnosis = false;
+		for (j = 0; j < diagnosis->len; ++j) {
+			sym = g_array_index(diagnosis, struct symbol *, j);
+			if (expr_contains_symbol(expr, sym)) {
+				constraint_contains_diagnosis = true;
+				break;
+			}
+		}
+		if (!constraint_contains_diagnosis) {
+			g_array_remove_index(constraints, i);
+			--i;
+		}
+	}
+	return constraints;
+}
+
 static inline int expr_is_mod(struct expr *e)
 {
 	return !e || (e->type == E_SYMBOL && e->left.sym == &symbol_mod);
@@ -581,17 +606,31 @@ static struct expr *get_fix(struct expr *constraint, GArray *diagnosis)
 GArray *rangefix_get_fixes()
 {
 	unsigned int i;
-	GArray *constraints, *diagnoses, *diagnosis, *fixes;
+	GArray *constraints, *constraints2, *diagnoses, *diagnosis, *fixes;
 	struct expr *constraint, *modified_constraint, *fix;
 
 	diagnoses = rangefix_generate_diagnoses();
 	constraints = rangefix_get_constraints();
-	constraint = rangefix_to_one_constraint(constraints);
 
 	fixes = g_array_new(false, false, sizeof(struct expr *));
 
 	for (i = 0; i < diagnoses->len; ++i) {
 		diagnosis = g_array_index(diagnoses, GArray *, i);
+
+		constraints2 = remove_constraints(
+			clone_array(constraints), diagnosis);
+		for (i = 0; i < constraints2->len; ++i) {
+			constraint = expr_copy(g_array_index(
+				constraints, struct expr *, i));
+			DEBUG("...\n");
+			print_expr(constraint);
+			rangefix_get_modified_constraint(constraint, diagnosis);
+			print_expr(constraint);
+			simplify_expr(constraint);
+			print_expr(constraint);
+		}
+		constraint = rangefix_to_one_constraint(constraints2);
+
 		fix = get_fix(expr_copy(constraint), diagnosis);
 		fixes = g_array_append_val(fixes, fix);
 	}
