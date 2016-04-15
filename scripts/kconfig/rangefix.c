@@ -434,7 +434,17 @@ static void replace_symbols(struct expr *expr, GArray *diagnosis)
 				if (sym == expr->left.sym)
 					return;
 			}
-			expr->left.sym = &symbol_yes;
+			switch (sym->curr.tri) {
+			case no:
+				expr->left.sym = &symbol_no;
+				break;
+			case mod:
+				expr->left.sym = &symbol_mod;
+				break;
+			case yes:
+				expr->left.sym = &symbol_yes;
+				break;
+			}
 		}
 		break;
 	case E_EQUAL:
