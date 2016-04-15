@@ -567,8 +567,14 @@ void simplify_expr(struct expr *e)
 
 static struct expr *get_fix(struct expr *constraint, GArray *diagnosis)
 {
+	DEBUG("Constraint: \n");
+	print_expr(constraint);
 	rangefix_get_modified_constraint(constraint, diagnosis);
+	DEBUG("Modified constraint: \n");
+	print_expr(constraint);
 	simplify_expr(constraint);
+	DEBUG("Simplified constraint: \n");
+	print_expr(constraint);
 	return constraint;
 }
 
