@@ -640,13 +640,19 @@ GArray *rangefix_get_fixes()
 
 int rangefix_init(const char *kconfig_file, const char *config)
 {
+	unsigned int i;
+	struct symbol *sym;
+
 	setlocale(LC_ALL, "");
 	bindtextdomain(PACKAGE, LOCALEDIR);
 	textdomain(PACKAGE);
 
 	satconfig_init(kconfig_file, config, false);
-	conf_read(config);
-	conf_read(NULL);
+
+	for_all_symbols(i, sym) {
+		if (sym->flags & SYMBOL_DEF_USER)
+			sym->curr = sym->def[S_DEF_USER];
+	}
 
 	return EXIT_SUCCESS;
 }
