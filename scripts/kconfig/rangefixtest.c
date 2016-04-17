@@ -135,9 +135,9 @@ Suite *test_suite(void) {
 
 	tcase_add_test(tc_core, test_load_config);
 	tcase_add_test(tc_core, test_generate_diagnoses);
-	tcase_add_test(tc_core, test_get_constraints);
-	tcase_add_test(tc_core, test_get_modified_constraint);
-	tcase_add_test(tc_core, test_get_fixes);
+	/* tcase_add_test(tc_core, test_get_constraints); */
+	/* tcase_add_test(tc_core, test_get_modified_constraint); */
+	/* tcase_add_test(tc_core, test_get_fixes); */
 
 	return s;
 }
