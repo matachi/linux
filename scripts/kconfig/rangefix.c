@@ -531,7 +531,8 @@ int rangefix_run(const char *config, const char *val)
 	fixes = rangefix_get_fixes();
 
 	for (i = 0; i < fixes->len; ++i)
-		print_expr(g_array_index(fixes, struct expr *,  1));
+		printf("%s\n", r_expr_to_str(g_array_index(
+			fixes, struct r_expr *,  i)));
 
 	return EXIT_SUCCESS;
 }

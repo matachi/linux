@@ -189,7 +189,7 @@ kxgettext-objs	:= kxgettext.o zconf.tab.o
 qconf-cxxobjs	:= qconf.o
 qconf-objs	:= zconf.tab.o
 gconf-objs	:= gconf.o zconf.tab.o
-rangefixconfig-objs	:= rangefixconfig.o rangefix.o zconf.tab.o picosat.o satconf.o
+rangefixconfig-objs	:= rangefixconfig.o rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
 rangefixtest-objs	:= rangefixtest.o rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
 rangefix-objs	:= rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
 
