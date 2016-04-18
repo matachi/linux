@@ -207,7 +207,10 @@ GArray *rangefix_generate_diagnoses(void)
 			print_array("Simplified diagnosis", E0);
 
 			E = g_array_remove_index(E, diagnosis_index);
-			R = g_array_append_val(R, E0);
+			if (E0->len > 0)
+				R = g_array_append_val(R, E0);
+			else
+				g_array_free(E0, false);
 
 			g_array_free(c, false);
 			DEBUG("\n");
