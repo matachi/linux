@@ -76,15 +76,14 @@ START_TEST(test_get_constraints)
 	assert_constraint_present(
 		constraints, "(B != yes || E == yes)");
 	assert_constraint_present(
-		constraints, "(B != mod || (E == mod || E == yes))");
+		constraints, "(B != mod || E != no)");
 
 	/* B select A */
 	assert_constraint_present(
 		constraints, "(!(B == yes && E == yes) || A == yes)");
 	assert_constraint_present(
 		constraints,
-		"(!((B == mod || B == yes) && (E == mod || E == yes)) || "
-		"(A == mod || A == yes))");
+		"(!(B != no && E != no) || A != no)");
 
 	/* B select D if A */
 	assert_constraint_present(
@@ -92,8 +91,7 @@ START_TEST(test_get_constraints)
 		"(!(B == yes && (E == yes && A == yes)) || D == yes)");
 	assert_constraint_present(
 		constraints,
-		"(!((B == mod || B == yes) && ((E == mod || E == yes) && "
-		"(A == mod || A == yes))) || (D == mod || D == yes))");
+		"(!(B != no && (E != no && A != no)) || D != no)");
 
 	/* C depends on A && !B */
 	assert_constraint_present(
@@ -101,16 +99,15 @@ START_TEST(test_get_constraints)
 		"(C != yes || (A == yes && B == no))");
 	assert_constraint_present(
 		constraints,
-		"(C != mod || ((A == mod || A == yes) && "
-		"(B == no || B == mod)))");
+		"(C != mod || (A != no && B != yes))");
 }
 END_TEST
 
 START_TEST(test_get_modified_constraint)
 {
 	GArray *constraints, *diagnoses, *diagnosis;
-	struct expr *constraint, *modified_constraint;
-	struct gstr str;
+	struct r_expr *constraint, *modified_constraint;
+	gchar *str;
 
 	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
 	diagnoses = rangefix_generate_diagnoses();
@@ -126,15 +123,15 @@ START_TEST(test_get_modified_constraint)
 	modified_constraint = rangefix_get_modified_constraint(
 		constraint, diagnosis);
 
-	str = str_new();
-	expr_gstr_print(modified_constraint, &str);
+	str = r_expr_to_str(modified_constraint);
 	ck_assert_str_eq(
-		str_get(&str),
-		"(!y || y) && "
-		"(!(y && y) || y) && "
-		"(!(y && y && y) || y) && "
-		"(!C [=n] || y && !y)");
-	str_free(&str);
+		str,
+		"((((((((false || false) && (false || true)) && (!(false && "
+		"false) || false)) && (!(true && true) || true)) && (!(false "
+		"&& (false && false)) || false)) && (!(true && (true && "
+		"true)) || true)) && (C != yes || (false && true))) && (C != "
+		"mod || (true && false)))");
+	g_free(str);
 }
 END_TEST
 
@@ -148,9 +145,8 @@ START_TEST(test_get_fixes)
 	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
 	fixes = rangefix_get_fixes();
 
-	ck_assert_int_eq(fixes->len, 2);
-	assert_constraint_present(fixes, "!B [=n]");
-	assert_constraint_present(fixes, "!C [=n]");
+	ck_assert_int_eq(fixes->len, 1);
+	assert_constraint_present(fixes, "(C != yes && C != mod)");
 }
 END_TEST
 
@@ -166,16 +162,14 @@ START_TEST(test_r_expr)
 		"(D == yes && C != mod))) || B == yes)";
 
 	gchar *expected_select_m =
-		"(!((A == mod || A == yes) && (((E == mod || E == yes) || "
-		"(F == mod || F == yes)) && ((D == mod || D == yes) && "
-		"C != mod))) || (B == mod || B == yes))";
+		"(!(A != no && ((E != no || F != no) && (D != no && "
+		"C != mod))) || B != no)";
 
 	gchar *expected_prompt_y =
 		"(A != yes || (E == yes || F == yes))";
 
 	gchar *expected_prompt_m =
-		"(A != mod || ((E == mod || E == yes) || "
-		"(F == mod || F == yes)))";
+		"(A != mod || (E != no || F != no))";
 
 	rangefix_init(test_data("Kconfig4"), NULL);
 
@@ -210,8 +204,8 @@ Suite *test_suite(void) {
 	tcase_add_test(tc_core, test_load_config);
 	tcase_add_test(tc_core, test_generate_diagnoses);
 	tcase_add_test(tc_core, test_get_constraints);
-	/* tcase_add_test(tc_core, test_get_modified_constraint); */
-	/* tcase_add_test(tc_core, test_get_fixes); */
+	tcase_add_test(tc_core, test_get_modified_constraint);
+	tcase_add_test(tc_core, test_get_fixes);
 	tcase_add_test(tc_core, test_r_expr);
 
 	return s;

@@ -360,72 +360,62 @@ GArray *rangefix_get_constraints(void)
 	return constraints;
 }
 
-struct expr *rangefix_to_one_constraint(GArray *constraints)
+struct r_expr *rangefix_to_one_constraint(GArray *constraints)
 {
 	unsigned int i;
-	struct expr *expr, *new_expr;
+	struct r_expr *expr, *new_expr;
 
 	if (constraints->len == 0)
 		return NULL;
 	if (constraints->len == 1)
-		return g_array_index(constraints, struct expr *, 0);
+		return r_expr_copy(g_array_index(
+			constraints, struct r_expr *, 0));
 
-	expr = g_array_index(constraints, struct expr *, 0);
+	expr = r_expr_copy(g_array_index(constraints, struct r_expr *, 0));
 	for (i = 1; i < constraints->len; ++i) {
-		new_expr = malloc(sizeof(struct expr));
-		new_expr->type = E_AND;
+		new_expr = malloc(sizeof(struct r_expr));
+		new_expr->type = R_AND;
 		new_expr->left.expr = expr;
-		new_expr->right.expr = g_array_index(
-			constraints, struct expr *, i);
+		new_expr->right.expr = r_expr_copy(g_array_index(
+			constraints, struct r_expr *, i));
 		expr = new_expr;
 	}
 	return expr;
 }
 
-static void replace_symbols(struct expr *expr, GArray *diagnosis)
+static void replace_symbols(struct r_expr *expr, GArray *diagnosis)
 {
 	switch (expr->type) {
-	case E_SYMBOL:
+	case R_VARIABLE:
 		{
 			unsigned int i;
 			struct symbol *sym;
 			for (i = 0; i < diagnosis->len; ++i) {
 				sym = g_array_index(
 					diagnosis, struct symbol *, i);
-				if (sym == expr->left.sym)
+				if (sym == expr->left.var->sym)
 					return;
 			}
-			switch (sym->curr.tri) {
-			case no:
-				expr->left.sym = &symbol_no;
-				break;
-			case mod:
-				expr->left.sym = &symbol_mod;
-				break;
-			case yes:
-				expr->left.sym = &symbol_yes;
-				break;
-			}
+			expr->type = R_CONSTANT;
+			expr->left.var->on =
+				expr->left.var->on ==
+				expr->left.var->sym->curr.tri ==
+				expr->left.var->tri;
 		}
 		break;
-	case E_EQUAL:
-	case E_GEQ:
-	case E_GTH:
-	case E_LEQ:
-	case E_LTH:
-	case E_UNEQUAL:
-	case E_AND:
-	case E_OR:
-	case E_LIST:
+	case R_AND:
+	case R_OR:
+		replace_symbols(expr->left.expr, diagnosis);
 		replace_symbols(expr->right.expr, diagnosis);
-	case E_NOT:
+		break;
+	case R_NOT:
 		replace_symbols(expr->left.expr, diagnosis);
 		break;
 	}
 }
 
-struct expr *rangefix_get_modified_constraint(
-	struct expr *constraint, GArray *diagnosis
+struct r_expr *rangefix_get_modified_constraint(
+	struct r_expr *constraint, GArray *diagnosis
 ) {
 	unsigned int i;
 	struct expr *expr;
@@ -440,16 +430,16 @@ struct expr *rangefix_get_modified_constraint(
 GArray *remove_constraints(GArray *constraints, GArray *diagnosis)
 {
 	unsigned int i, j;
-	struct expr *expr;
+	struct r_expr *expr;
 	struct symbol *sym;
 	bool constraint_contains_diagnosis;
 
 	for (i = 0; i < constraints->len; ++i) {
-		expr = g_array_index(constraints, struct expr *, i);
+		expr = g_array_index(constraints, struct r_expr *, i);
 		constraint_contains_diagnosis = false;
 		for (j = 0; j < diagnosis->len; ++j) {
 			sym = g_array_index(diagnosis, struct symbol *, j);
-			if (expr_contains_symbol(expr, sym)) {
+			if (r_expr_contains_symbol(expr, sym)) {
 				constraint_contains_diagnosis = true;
 				break;
 			}
@@ -462,105 +452,18 @@ GArray *remove_constraints(GArray *constraints, GArray *diagnosis)
 	return constraints;
 }
 
-static inline int expr_is_mod(struct expr *e)
+static struct r_expr *get_fix(GArray *constraints, GArray *diagnosis)
 {
-	return !e || (e->type == E_SYMBOL && e->left.sym == &symbol_mod);
-}
-
-static inline int expr_is_pos(struct expr *e)
-{
-	return expr_is_yes(e) || expr_is_mod(e);
-}
-
-void simplify_expr(struct expr *e)
-{
-	struct expr *l, *r;
-	struct symbol *sym;
-
-	if (e == NULL ||
-	    (e->type != E_NOT && e->type != E_AND && e->type != E_OR))
-		return;
-
-	simplify_expr(e->left.expr);
-	l = e->left.expr;
-
-	switch (e->type) {
-	case E_NOT:
-		if (expr_is_pos(l)) {
-			e->type = E_SYMBOL;
-			e->left.sym = &symbol_no;
-			expr_free(l);
-		} else if (expr_is_no(l)) {
-			e->type = E_SYMBOL;
-			e->left.sym = &symbol_yes;
-			expr_free(l);
-		}
-		return;
-	}
-
-	simplify_expr(e->right.expr);
-	r = e->right.expr;
-
-	switch (e->type) {
-	case E_AND:
-		if (expr_is_pos(l) && expr_is_pos(r)) {
-			e->type = E_SYMBOL;
-			e->left.sym = &symbol_yes;
-			expr_free(l);
-			expr_free(r);
-		} else if (expr_is_no(l) || expr_is_no(r)) {
-			e->type = E_SYMBOL;
-			e->left.sym = &symbol_no;
-			expr_free(l);
-			expr_free(r);
-		} else if (expr_is_yes(l)) {
-			e->type = r->type;
-			e->left = r->left;
-			e->right = r->right;
-			expr_free(l);
-		} else if (expr_is_yes(r)) {
-			e->type = l->type;
-			e->left = l->left;
-			e->right = l->right;
-			expr_free(r);
-		}
-		return;
-	case E_OR:
-		if (expr_is_pos(l) || expr_is_pos(r)) {
-			e->type = E_SYMBOL;
-			e->left.sym = &symbol_yes;
-			expr_free(l);
-			expr_free(r);
-		} else if (expr_is_no(l) && expr_is_no(r)) {
-			e->type = E_SYMBOL;
-			e->left.sym = &symbol_no;
-			expr_free(l);
-			expr_free(r);
-		} else if (expr_is_no(l)) {
-			e->type = r->type;
-			e->left = r->left;
-			e->right = r->right;
-			expr_free(l);
-		} else if (expr_is_no(r)) {
-			e->type = l->type;
-			e->left = l->left;
-			e->right = l->right;
-			expr_free(r);
-		}
-		return;
-	}
-}
-
-static struct expr *get_fix(struct expr *constraint, GArray *diagnosis)
-{
-	DEBUG("Constraint: \n");
-	print_expr(constraint);
+	constraints = remove_constraints(constraints, diagnosis);
+	struct r_expr *constraint = rangefix_to_one_constraint(constraints);
+	/* DEBUG("Constraint: \n"); */
+	/* print_expr(constraint); */
 	rangefix_get_modified_constraint(constraint, diagnosis);
-	DEBUG("Modified constraint: \n");
-	print_expr(constraint);
-	simplify_expr(constraint);
-	DEBUG("Simplified constraint: \n");
-	print_expr(constraint);
+	/* DEBUG("Modified constraint: \n"); */
+	/* print_expr(constraint); */
+	simplify_r_expr(constraint);
+	/* DEBUG("Simplified constraint: \n"); */
+	/* print_expr(constraint); */
 	return constraint;
 }
 
@@ -568,31 +471,17 @@ GArray *rangefix_get_fixes()
 {
 	unsigned int i;
 	GArray *constraints, *constraints2, *diagnoses, *diagnosis, *fixes;
-	struct expr *constraint, *modified_constraint, *fix;
+	struct r_expr *constraint, *modified_constraint, *fix;
 
 	diagnoses = rangefix_generate_diagnoses();
 	constraints = rangefix_get_constraints();
 
-	fixes = g_array_new(false, false, sizeof(struct expr *));
+	fixes = g_array_new(false, false, sizeof(struct r_expr *));
 
 	for (i = 0; i < diagnoses->len; ++i) {
 		diagnosis = g_array_index(diagnoses, GArray *, i);
 
-		constraints2 = remove_constraints(
-			clone_array(constraints), diagnosis);
-		for (i = 0; i < constraints2->len; ++i) {
-			constraint = expr_copy(g_array_index(
-				constraints, struct expr *, i));
-			DEBUG("...\n");
-			print_expr(constraint);
-			rangefix_get_modified_constraint(constraint, diagnosis);
-			print_expr(constraint);
-			simplify_expr(constraint);
-			print_expr(constraint);
-		}
-		constraint = rangefix_to_one_constraint(constraints2);
-
-		fix = get_fix(expr_copy(constraint), diagnosis);
+		fix = get_fix(clone_array(constraints), diagnosis);
 		fixes = g_array_append_val(fixes, fix);
 	}
 
