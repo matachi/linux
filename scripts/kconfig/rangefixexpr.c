@@ -62,6 +62,17 @@ static struct r_expr *expr_to_r_expr(
 			);
 		}
 		break;
+	case E_NOT:
+		;
+		struct expr *child = expr->left.expr;
+		if (child->type == E_SYMBOL) {
+			r = expr_to_r_expr(child, 2 - upper, 2 - lower);
+		} else {
+			r = new_r_expr_not(
+				expr_to_r_expr(child, lower, upper)
+			);
+		}
+		break;
 	case E_OR:
 		r = new_r_expr_or(
 			expr_to_r_expr(expr->left.expr, lower, upper),
@@ -81,6 +92,8 @@ static struct r_expr *expr_to_r_expr(
 			false
 		);
 		break;
+	default:
+		fprintf(stderr, "Unhandled expr type: %i\n", expr->type);
 	}
 	return r;
 
@@ -109,6 +122,8 @@ static struct r_expr *prompt_to_constraint_m(struct property *prop)
 
 struct r_expr *prompt_to_constraint(struct property *prop, tristate tri)
 {
+	if (!prop->visible.expr)
+		return NULL;
 	switch (tri) {
 	case mod:
 		return prompt_to_constraint_m(prop);
@@ -175,7 +190,11 @@ gchar *r_expr_to_str(struct r_expr *r)
 		break;
 	case R_NOT:
 		s2 = r_expr_to_str(r->left.expr);
-		s = g_strconcat("!(", s2, ")", NULL);
+		if (r->left.expr->type == R_VARIABLE) {
+			s = g_strconcat("!(", s2, ")", NULL);
+		} else {
+			s = g_strconcat("!", s2, NULL);
+		}
 		g_free(s2);
 		break;
 	case R_OR:

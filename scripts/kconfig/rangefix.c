@@ -315,64 +315,15 @@ static void print_expr(struct expr *expr)
 	str_free(&str);
 }
 
-static struct expr *construct_prompt_constraint(
-	struct symbol *sym, struct property *prop
-) {
-	struct expr *expr;
-
-	if (!prop->visible.expr)
-		return NULL;
-	DEBUG("Look at prompt \"%s\"\n", prop->text);
-
-	expr = malloc(sizeof(struct expr));
-	expr->type = E_OR;
-	expr->left.expr = malloc(sizeof(struct expr));
-	expr->left.expr->type = E_NOT;
-	expr->left.expr->left.expr = malloc(sizeof(struct expr));
-	expr->left.expr->left.expr->type = E_SYMBOL;
-	expr->left.expr->left.expr->left.sym = sym;
-	expr->right.expr = expr_copy(prop->visible.expr);
-
-	print_expr(expr);
-
-	return expr;
-}
-
-static struct expr *construct_select_constraint(
-	struct symbol *sym, struct property *prop
-) {
-	struct expr *expr;
-
-	if (!prop->visible.expr)
-		return NULL;
-	DEBUG("Look at select for %s\n", sym->name);
-
-	expr = malloc(4 * sizeof(struct expr));
-	expr->type = E_OR;
-	expr->left.expr = &expr[1];
-	expr->left.expr->type = E_NOT;
-	expr->left.expr->left.expr = &expr[2];
-	expr->left.expr->left.expr->type = E_AND;
-	expr->left.expr->left.expr->left.expr = &expr[3];
-	expr->left.expr->left.expr->left.expr->type = E_SYMBOL;
-	expr->left.expr->left.expr->left.expr->left.sym = sym;
-	expr->left.expr->left.expr->right.expr = expr_copy(prop->visible.expr);
-	expr->right.expr = expr_copy(prop->expr);
-
-	print_expr(expr);
-
-	return expr;
-}
-
 GArray *rangefix_get_constraints(void)
 {
 	unsigned int i;
 	struct symbol *sym;
 	struct property *prop;
 	GArray *constraints;
-	struct expr *expr;
+	struct r_expr *expr[2];
 
-	constraints = g_array_new(false, false, sizeof(struct expr *));
+	constraints = g_array_new(false, false, sizeof(struct r_expr *));
 
 	DEBUG("===== Getting constraints =====\n");
 
@@ -381,18 +332,24 @@ GArray *rangefix_get_constraints(void)
 			continue;
 		DEBUG("Look at symbol %s\n", sym->name);
 		for (prop = sym->prop; prop; prop = prop->next) {
-			expr = NULL;
+			expr[0] = NULL;
+			expr[1] = NULL;
 			switch (prop->type) {
 			case P_PROMPT:
-				expr = construct_prompt_constraint(sym, prop);
+				expr[0] = prompt_to_constraint(prop, yes);
+				expr[1] = prompt_to_constraint(prop, mod);
 				break;
 			case P_SELECT:
-				expr = construct_select_constraint(sym, prop);
+				expr[0] = select_to_constraint(prop, yes);
+				expr[1] = select_to_constraint(prop, mod);
 				break;
 			}
-			if (expr != NULL)
+			if (expr[0] != NULL)
 				constraints = g_array_append_val(
-					constraints, expr);
+					constraints, expr[0]);
+			if (expr[1] != NULL)
+				constraints = g_array_append_val(
+					constraints, expr[1]);
 		}
 		DEBUG("\n");
 	}

@@ -64,19 +64,45 @@ START_TEST(test_get_constraints)
 	 * - D's prompt is always visible.
 	 */
 	GArray *constraints;
+	unsigned int i;
+	struct r_expr *expr;
 
 	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
 	constraints = rangefix_get_constraints();
 
-	ck_assert_int_eq(constraints->len, 4);
+	ck_assert_int_eq(constraints->len, 8);
+
+	/* B depends on E */
 	assert_constraint_present(
-		constraints, "!B [=n] || E [=n]");
+		constraints, "(B != yes || E == yes)");
 	assert_constraint_present(
-		constraints, "!(B [=n] && E [=n]) || A [=n]");
+		constraints, "(B != mod || (E == mod || E == yes))");
+
+	/* B select A */
 	assert_constraint_present(
-		constraints, "!(B [=n] && E [=n] && A [=n]) || D [=n]");
+		constraints, "(!(B == yes && E == yes) || A == yes)");
 	assert_constraint_present(
-		constraints, "!(B [=n] && E [=n]) || A [=n]");
+		constraints,
+		"(!((B == mod || B == yes) && (E == mod || E == yes)) || "
+		"(A == mod || A == yes))");
+
+	/* B select D if A */
+	assert_constraint_present(
+		constraints,
+		"(!(B == yes && (E == yes && A == yes)) || D == yes)");
+	assert_constraint_present(
+		constraints,
+		"(!((B == mod || B == yes) && ((E == mod || E == yes) && "
+		"(A == mod || A == yes))) || (D == mod || D == yes))");
+
+	/* C depends on A && !B */
+	assert_constraint_present(
+		constraints,
+		"(C != yes || (A == yes && B == no))");
+	assert_constraint_present(
+		constraints,
+		"(C != mod || ((A == mod || A == yes) && "
+		"(B == no || B == mod)))");
 }
 END_TEST
 
@@ -136,13 +162,13 @@ START_TEST(test_r_expr)
 	struct r_expr *r;
 
 	gchar *expected_select_y =
-		"(!((A == yes && ((E == yes || F == yes) && "
-		"(D == yes && C != mod)))) || B == yes)";
+		"(!(A == yes && ((E == yes || F == yes) && "
+		"(D == yes && C != mod))) || B == yes)";
 
 	gchar *expected_select_m =
-		"(!(((A == mod || A == yes) && (((E == mod || E == yes) || "
+		"(!((A == mod || A == yes) && (((E == mod || E == yes) || "
 		"(F == mod || F == yes)) && ((D == mod || D == yes) && "
-		"C != mod)))) || (B == mod || B == yes))";
+		"C != mod))) || (B == mod || B == yes))";
 
 	gchar *expected_prompt_y =
 		"(A != yes || (E == yes || F == yes))";
@@ -183,7 +209,7 @@ Suite *test_suite(void) {
 
 	tcase_add_test(tc_core, test_load_config);
 	tcase_add_test(tc_core, test_generate_diagnoses);
-	/* tcase_add_test(tc_core, test_get_constraints); */
+	tcase_add_test(tc_core, test_get_constraints);
 	/* tcase_add_test(tc_core, test_get_modified_constraint); */
 	/* tcase_add_test(tc_core, test_get_fixes); */
 	tcase_add_test(tc_core, test_r_expr);
@@ -259,19 +285,18 @@ deallocate:
  */
 static void assert_constraint_present(GArray *constraints, char *constraint) {
 	unsigned int i;
-	struct expr *expr;
-	struct gstr str;
+	struct r_expr *expr;
+	gchar *str;
 
 	for (i = 0; i < constraints->len; ++i) {
-		expr = g_array_index(constraints, struct expr *, i);
+		expr = g_array_index(constraints, struct r_expr *, i);
 
-		str = str_new();
-		expr_gstr_print(expr, &str);
-		if (g_strcmp0(str_get(&str), constraint) == 0) {
-			str_free(&str);
+		str = r_expr_to_str(expr);
+		if (g_strcmp0(str, constraint) == 0) {
+			g_free(str);
 			return;
 		}
-		str_free(&str);
+		g_free(str);
 	}
 	ck_assert(false);
 }
