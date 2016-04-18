@@ -190,8 +190,8 @@ qconf-cxxobjs	:= qconf.o
 qconf-objs	:= zconf.tab.o
 gconf-objs	:= gconf.o zconf.tab.o
 rangefixconfig-objs	:= rangefixconfig.o rangefix.o zconf.tab.o picosat.o satconf.o
-rangefixtest-objs	:= rangefixtest.o rangefix.o zconf.tab.o picosat.o satconf.o
-rangefix-objs	:= rangefix.o zconf.tab.o picosat.o satconf.o
+rangefixtest-objs	:= rangefixtest.o rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
+rangefix-objs	:= rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
 
 hostprogs-y := conf nconf mconf kxgettext qconf gconf rangefixconfig rangefixtest
 
@@ -231,6 +231,8 @@ HOSTLOADLIBES_rangefixtest	:= $(shell pkg-config --libs check glib-2.0)
 HOSTCFLAGS_rangefixtest.o	:= $(shell pkg-config --cflags check glib-2.0)
 
 HOSTCFLAGS_rangefix.o	:= $(shell pkg-config --cflags glib-2.0)
+
+HOSTCFLAGS_rangefixexpr.o	:= $(shell pkg-config --cflags glib-2.0)
 
 HOSTCFLAGS_satconf.o	:= $(shell pkg-config --cflags glib-2.0)
 

@@ -2,6 +2,7 @@
 #include <glib.h>
 #include <stdlib.h>
 #include "rangefix.h"
+#include "rangefixexpr.h"
 #include "satconf.h"
 
 #define CONFIG_DEBUG 0

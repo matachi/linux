@@ -1,0 +1,23 @@
+config MODULES
+  bool "Enable loadable module support"
+  option modules
+
+config A
+  tristate "A"
+  select B if D && C !=m
+  depends on E || F
+
+config B
+  tristate "B"
+
+config C
+  tristate "C"
+
+config D
+  tristate "D"
+
+config E
+  tristate "E"
+
+config F
+  tristate "F"

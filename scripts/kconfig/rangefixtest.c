@@ -1,6 +1,7 @@
 #include <check.h>
 #include <glib.h>
 #include <stdlib.h>
+#include "rangefixexpr.h"
 #include "rangefix.h"
 
 #define test_data(str) "scripts/kconfig/test_data/" str
@@ -127,6 +128,53 @@ START_TEST(test_get_fixes)
 }
 END_TEST
 
+START_TEST(test_r_expr)
+{
+	struct symbol *sym;
+	struct property *prompt, *select;
+	unsigned int i;
+	struct r_expr *r;
+
+	gchar *expected_select_y =
+		"(!((A == yes && ((E == yes || F == yes) && "
+		"(D == yes && C != mod)))) || B == yes)";
+
+	gchar *expected_select_m =
+		"(!(((A == mod || A == yes) && (((E == mod || E == yes) || "
+		"(F == mod || F == yes)) && ((D == mod || D == yes) && "
+		"C != mod)))) || (B == mod || B == yes))";
+
+	gchar *expected_prompt_y =
+		"(A != yes || (E == yes || F == yes))";
+
+	gchar *expected_prompt_m =
+		"(A != mod || ((E == mod || E == yes) || "
+		"(F == mod || F == yes)))";
+
+	rangefix_init(test_data("Kconfig4"), NULL);
+
+	for_all_symbols(i, sym)
+		if (g_strcmp0(sym->name, "A") == 0) {
+			prompt = sym_get_prompt(sym);
+			for_all_properties(sym, select, P_SELECT)
+				goto found;
+		}
+
+found:
+	r = select_to_constraint(select, yes);
+	ck_assert_str_eq(r_expr_to_str(r), expected_select_y);
+
+	r = select_to_constraint(select, mod);
+	ck_assert_str_eq(r_expr_to_str(r), expected_select_m);
+
+	r = prompt_to_constraint(prompt, yes);
+	ck_assert_str_eq(r_expr_to_str(r), expected_prompt_y);
+
+	r = prompt_to_constraint(prompt, mod);
+	ck_assert_str_eq(r_expr_to_str(r), expected_prompt_m);
+}
+END_TEST
+
 Suite *test_suite(void);
 Suite *test_suite(void) {
 	Suite *s = suite_create("RangeFix");
@@ -138,6 +186,7 @@ Suite *test_suite(void) {
 	/* tcase_add_test(tc_core, test_get_constraints); */
 	/* tcase_add_test(tc_core, test_get_modified_constraint); */
 	/* tcase_add_test(tc_core, test_get_fixes); */
+	tcase_add_test(tc_core, test_r_expr);
 
 	return s;
 }
