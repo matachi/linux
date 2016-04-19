@@ -105,6 +105,13 @@ static struct r_expr *expr_to_r_expr(
 			expr_to_r_expr(expr->right.expr, lower, upper)
 		);
 		break;
+	case E_EQUAL:
+		r = new_r_expr_var(
+			expr->left.sym,
+			expr->right.sym->curr.tri,
+			true
+		);
+		break;
 	case E_UNEQUAL:
 		r = new_r_expr_var(
 			expr->left.sym,
@@ -154,28 +161,42 @@ struct r_expr *prompt_to_constraint(struct property *prop, tristate tri)
 
 static struct r_expr *select_to_constraint_y(struct property *prop)
 {
-	return new_r_expr_or(
-		new_r_expr_not(
-			new_r_expr_and(
-				new_r_expr_var(prop->sym, yes, true),
-				expr_to_r_expr_same(prop->visible.expr, yes)
-			)
-		),
-		expr_to_r_expr_same(prop->expr, yes)
-	);	
+	if (prop->visible.expr)
+		return new_r_expr_or(
+			new_r_expr_not(
+				new_r_expr_and(
+					new_r_expr_var(prop->sym, yes, true),
+					expr_to_r_expr_same(
+						prop->visible.expr, yes)
+				)
+			),
+			expr_to_r_expr_same(prop->expr, yes)
+		);
+	else
+		return new_r_expr_or(
+			new_r_expr_var(prop->sym, yes, false),
+			expr_to_r_expr_same(prop->expr, yes)
+		);
 }
 
 static struct r_expr *select_to_constraint_m(struct property *prop)
 {
-	return new_r_expr_or(
-		new_r_expr_not(
-			new_r_expr_and(
-				new_r_expr_var(prop->sym, no, false),
-				expr_to_r_expr(prop->visible.expr, mod, yes)
-			)
-		),
-		expr_to_r_expr(prop->expr, mod, yes)
-	);	
+	if (prop->visible.expr)
+		return new_r_expr_or(
+			new_r_expr_not(
+				new_r_expr_and(
+					new_r_expr_var(prop->sym, no, false),
+					expr_to_r_expr(
+						prop->visible.expr, mod, yes)
+				)
+			),
+			expr_to_r_expr(prop->expr, mod, yes)
+		);
+	else
+		return new_r_expr_or(
+			new_r_expr_var(prop->sym, no, true),
+			expr_to_r_expr(prop->expr, mod, yes)
+		);
 }
 
 struct r_expr *select_to_constraint(struct property *prop, tristate tri)
@@ -208,7 +229,6 @@ void simplify_r_expr(struct r_expr *e)
 		return;
 
 	l = e->left.expr;
-	var = e->left.var;
 	simplify_r_expr(l);
 
 	switch (e->type) {
@@ -216,12 +236,17 @@ void simplify_r_expr(struct r_expr *e)
 		switch (l->type) {
 		case R_CONSTANT:
 			e->type = R_CONSTANT;
-			var->on != l->left.var->on;
+			var = new_r_var(NULL, 0, !l->left.var->on);
+			e->left.var = var;
 			r_expr_free(l);
 			break;
 		case R_VARIABLE:
 			e->type = R_VARIABLE;
-			var->on != l->left.var->on;
+			var = new_r_var(
+				l->left.var->sym,
+				l->left.var->tri,
+				!l->left.var->on);
+			e->left.var = var;
 			r_expr_free(l);
 			break;
 		}

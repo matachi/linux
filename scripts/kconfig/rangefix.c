@@ -138,6 +138,20 @@ static GArray *clone_array(GArray *array)
 	return output;
 }
 
+static GArray *clone_constraints(GArray *array)
+{
+	unsigned int i;
+	struct r_expr *e;
+	GArray *output;
+
+	output = g_array_new(false, false, sizeof(struct r_expr *));
+	for (i = 0; i < array->len; ++i) {
+		e = r_expr_copy(g_array_index(array, struct r_expr *, i));
+		g_array_append_val(output, e);
+	}
+	return output;
+}
+
 static void print_array(char *title, GArray *array)
 {
 	unsigned int i;
@@ -367,19 +381,22 @@ struct r_expr *rangefix_to_one_constraint(GArray *constraints)
 
 	if (constraints->len == 0)
 		return NULL;
-	if (constraints->len == 1)
-		return r_expr_copy(g_array_index(
-			constraints, struct r_expr *, 0));
+	if (constraints->len == 1) {
+		expr = g_array_index(constraints, struct r_expr *, 0);
+		g_array_free(constraints, false);
+		return expr;
+	}
 
-	expr = r_expr_copy(g_array_index(constraints, struct r_expr *, 0));
+	expr = g_array_index(constraints, struct r_expr *, 0);
 	for (i = 1; i < constraints->len; ++i) {
 		new_expr = malloc(sizeof(struct r_expr));
 		new_expr->type = R_AND;
 		new_expr->left.expr = expr;
-		new_expr->right.expr = r_expr_copy(g_array_index(
-			constraints, struct r_expr *, i));
+		new_expr->right.expr = g_array_index(
+			constraints, struct r_expr *, i);
 		expr = new_expr;
 	}
+	g_array_free(constraints, false);
 	return expr;
 }
 
@@ -445,6 +462,7 @@ GArray *remove_constraints(GArray *constraints, GArray *diagnosis)
 			}
 		}
 		if (!constraint_contains_diagnosis) {
+			r_expr_free(expr);
 			g_array_remove_index(constraints, i);
 			--i;
 		}
@@ -481,7 +499,7 @@ GArray *rangefix_get_fixes()
 	for (i = 0; i < diagnoses->len; ++i) {
 		diagnosis = g_array_index(diagnoses, GArray *, i);
 
-		fix = get_fix(clone_array(constraints), diagnosis);
+		fix = get_fix(clone_constraints(constraints), diagnosis);
 		fixes = g_array_append_val(fixes, fix);
 	}
 
