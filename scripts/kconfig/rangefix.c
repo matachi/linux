@@ -472,16 +472,29 @@ GArray *remove_constraints(GArray *constraints, GArray *diagnosis)
 
 static struct r_expr *get_fix(GArray *constraints, GArray *diagnosis)
 {
+	unsigned int i;
+	struct r_expr *constraint, *c_temp1, *c_temp2;
+
 	constraints = remove_constraints(constraints, diagnosis);
-	struct r_expr *constraint = rangefix_to_one_constraint(constraints);
-	/* DEBUG("Constraint: \n"); */
-	/* print_expr(constraint); */
-	rangefix_get_modified_constraint(constraint, diagnosis);
-	/* DEBUG("Modified constraint: \n"); */
-	/* print_expr(constraint); */
-	simplify_r_expr(constraint);
-	/* DEBUG("Simplified constraint: \n"); */
-	/* print_expr(constraint); */
+	for (i = 0; i < constraints->len; ++i) {
+		constraint = g_array_index(constraints, struct r_expr *, i);
+		c_temp1 = r_expr_copy(constraint);
+		rangefix_get_modified_constraint(constraint, diagnosis);
+		c_temp2 = r_expr_copy(constraint);
+		simplify_r_expr(constraint);
+		if (constraint->type == R_CONSTANT) {
+			r_expr_free(constraint);
+			g_array_remove_index(constraints, i);
+			--i;
+			continue;
+		}
+		printf("Constraint: %s\n", r_expr_to_str(c_temp1));
+		r_expr_free(c_temp1);
+		printf("Modified constraint: %s\n", r_expr_to_str(c_temp2));
+		r_expr_free(c_temp2);
+		printf("Simplified constraint: %s\n\n", r_expr_to_str(constraint));
+	}
+	constraint = rangefix_to_one_constraint(constraints);
 	return constraint;
 }
 
