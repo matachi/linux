@@ -8,7 +8,7 @@ int main(int ac, char** av)
 	const char *config_file = ".config";
 	const char *option_name, *val;
 
-	if (ac < 4) {
+	if (ac < 3) {
 		fprintf(stderr,
 		        "Both option name and value must be specified.\n");
 		return EXIT_FAILURE;
