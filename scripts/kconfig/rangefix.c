@@ -169,6 +169,49 @@ static void print_array(char *title, GArray *array)
 	DEBUG("]\n");
 }
 
+/* Remove the proposal itself from the diagnoses set */
+static void remove_self(GArray *diagnoses, GArray *proposal)
+{
+	unsigned int i, j;
+	GArray *diagnosis, *temp;
+
+	for (i = 0; i < diagnoses->len; ++i) {
+		diagnosis = g_array_index(diagnoses, GArray *, i);
+		if (diagnosis->len != proposal->len)
+			continue;
+		temp = set_union(diagnosis, proposal);
+		if (diagnosis->len == temp->len) {
+			g_array_remove_index(diagnoses, i);
+			--i;
+			g_array_free(diagnosis, false);
+		}
+		g_array_free(temp, false);
+	}
+}
+
+/* Remove duplicate diagnoses */
+static void remove_duplicates(GArray *diagnoses)
+{
+	unsigned int i, j;
+	GArray *diagnosis1, *diagnosis2, *temp;
+
+	for (i = 0; i < diagnoses->len; ++i) {
+		diagnosis1 = g_array_index(diagnoses, GArray *, i);
+		for (j = i + 1; j < diagnoses->len; ++j) {
+			diagnosis2 = g_array_index(diagnoses, GArray *, j);
+			if (diagnosis1->len != diagnosis2->len)
+				continue;
+			temp = set_union(diagnosis1, diagnosis2);
+			if (diagnosis1->len == temp->len) {
+				g_array_remove_index(diagnoses, j);
+				g_array_free(diagnosis2, false);
+				--j;
+			}
+			g_array_free(temp, false);
+		}
+	}
+}
+
 GArray *rangefix_generate_diagnoses(void)
 {
 	unsigned int i, j, k, diagnosis_index;
@@ -314,12 +357,14 @@ GArray *rangefix_generate_diagnoses(void)
 	DEBUG("R length: %i\n", R->len);
 	DEBUG("E length: %i\n", E->len);
 
+	g_array_free(C, false);
+	g_array_free(E, false);
+
+	remove_duplicates(R);
+
 	for (i = 0; i < R->len; ++i) {
 		print_array("Diagnosis", g_array_index(R, GArray *, i));
 	}
-
-	g_array_free(C, false);
-	g_array_free(E, false);
 
 	return R;
 }
@@ -540,10 +585,10 @@ int rangefix_init(const char *kconfig_file, const char *config)
 
 int rangefix_run(const char *config, const char *val)
 {
-	unsigned int i;
+	unsigned int i, j;
 	struct symbol *sym;
 	tristate tri;
-	GArray *fixes;
+	GArray *diagnoses, *diagnosis, *proposal;
 
 	sym = extract_sym(config);
 	if (sym == NULL) {
@@ -559,11 +604,22 @@ int rangefix_run(const char *config, const char *val)
 	}
 	sym->curr.tri = tri;
 
-	fixes = rangefix_get_fixes();
+	diagnoses = rangefix_generate_diagnoses();
 
-	for (i = 0; i < fixes->len; ++i)
-		printf("%s\n", r_expr_to_str(g_array_index(
-			fixes, struct r_expr *,  i)));
+	proposal = g_array_new(false, false, sizeof(struct symbol *));
+	g_array_append_val(proposal, sym);
+	remove_self(diagnoses, proposal);
+
+	for (i = 0; i < diagnoses->len; ++i) {
+		diagnosis = g_array_index(diagnoses, GArray *, i);
+		for (j = 0; j < diagnosis->len; ++j) {
+			printf(
+				"%s, ",
+				g_array_index(
+					diagnosis, struct symbol *, j)->name);
+		}
+		printf("\n");
+	}
 
 	return EXIT_SUCCESS;
 }
