@@ -3,6 +3,8 @@
 
 int main(int ac, char** av)
 {
+	GArray *diagnoses, *diagnosis;
+	int i, j;
 	int option = 1;
 	const char *kconfig_file = "Kconfig";
 	const char *config_file = ".config";
@@ -23,6 +25,18 @@ int main(int ac, char** av)
 	option_name = av[option++];
 	val = av[option++];
 
-	rangefix_init(kconfig_file, config_file);
-	return rangefix_run(option_name, val);
+	rangefix_init(kconfig_file, config_file, true);
+	diagnoses = rangefix_run_str(option_name, val);
+	for (i = 0; i < diagnoses->len; ++i) {
+		diagnosis = g_array_index(diagnoses, GArray *, i);
+		for (j = 0; j < diagnosis->len; ++j) {
+			printf(
+				"%s, ",
+				g_array_index(
+					diagnosis, struct symbol *, j)->name);
+		}
+		printf("\n");
+	}
+
+	return EXIT_SUCCESS;
 }

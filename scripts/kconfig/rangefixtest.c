@@ -12,7 +12,7 @@ static void assert_constraint_present(GArray *constraints, char *constraint);
 START_TEST(test_load_config)
 {
 	ck_assert_int_eq(
-		rangefix_init(test_data("Kconfig1"), NULL),
+		rangefix_init(test_data("Kconfig1"), NULL, true),
 		EXIT_SUCCESS);
 	struct menu *m = &rootmenu;
 	ck_assert(m);
@@ -38,7 +38,7 @@ START_TEST(test_generate_diagnoses)
 	 * there are 6 minimal diagnoses that satisfy this. */
 	GArray *diagnoses, *diagnosis;
 
-	rangefix_init(test_data("Kconfig3"), test_data("dotconfig3"));
+	rangefix_init(test_data("Kconfig3"), test_data("dotconfig3"), true);
 	diagnoses = rangefix_generate_diagnoses();
 
 	ck_assert_int_eq(diagnoses->len, 6);
@@ -67,7 +67,7 @@ START_TEST(test_get_constraints)
 	unsigned int i;
 	struct r_expr *expr;
 
-	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
+	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"), true);
 	constraints = rangefix_get_constraints();
 
 	ck_assert_int_eq(constraints->len, 8);
@@ -109,7 +109,7 @@ START_TEST(test_get_modified_constraint)
 	struct r_expr *constraint, *modified_constraint;
 	gchar *str;
 
-	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
+	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"), true);
 	diagnoses = rangefix_generate_diagnoses();
 	constraints = rangefix_get_constraints();
 	constraint = rangefix_to_one_constraint(constraints);
@@ -142,7 +142,7 @@ START_TEST(test_get_fixes)
 	 */
 	GArray *fixes;
 
-	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"));
+	rangefix_init(test_data("Kconfig2"), test_data("dotconfig2"), true);
 	fixes = rangefix_get_fixes();
 
 	ck_assert_int_eq(fixes->len, 1);
@@ -171,7 +171,7 @@ START_TEST(test_r_expr)
 	gchar *expected_prompt_m =
 		"(A != mod || (E != no || F != no))";
 
-	rangefix_init(test_data("Kconfig4"), NULL);
+	rangefix_init(test_data("Kconfig4"), NULL, true);
 
 	for_all_symbols(i, sym)
 		if (g_strcmp0(sym->name, "A") == 0) {

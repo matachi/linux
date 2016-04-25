@@ -187,7 +187,7 @@ mconf-objs     := mconf.o zconf.tab.o $(lxdialog)
 nconf-objs     := nconf.o zconf.tab.o nconf.gui.o
 kxgettext-objs	:= kxgettext.o zconf.tab.o
 qconf-cxxobjs	:= qconf.o
-qconf-objs	:= zconf.tab.o
+qconf-objs	:= zconf.tab.o rangefix.o rangefixexpr.o picosat.o satconf.o
 gconf-objs	:= gconf.o zconf.tab.o
 rangefixconfig-objs	:= rangefixconfig.o rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
 rangefixtest-objs	:= rangefixtest.o rangefix.o rangefixexpr.o zconf.tab.o picosat.o satconf.o
@@ -217,8 +217,8 @@ HOSTCFLAGS_zconf.tab.o	:= -I$(src)
 LEX_PREFIX_zconf	:= zconf
 YACC_PREFIX_zconf	:= zconf
 
-HOSTLOADLIBES_qconf	= $(KC_QT_LIBS)
-HOSTCXXFLAGS_qconf.o	= $(KC_QT_CFLAGS)
+HOSTLOADLIBES_qconf	= $(KC_QT_LIBS) $(shell pkg-config --libs glib-2.0)
+HOSTCXXFLAGS_qconf.o	= $(KC_QT_CFLAGS) $(shell pkg-config --cflags glib-2.0)
 
 HOSTLOADLIBES_gconf	= `pkg-config --libs gtk+-2.0 gmodule-2.0 libglade-2.0`
 HOSTCFLAGS_gconf.o	= `pkg-config --cflags gtk+-2.0 gmodule-2.0 libglade-2.0` \

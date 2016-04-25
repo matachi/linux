@@ -1112,12 +1112,12 @@ static void check_sym_value(struct symbol *sym, tristate value)
 }
 
 void satconfig_init(const char *Kconfig_file, const char *config,
-                    bool randomize)
+                    bool randomize, bool load)
 {
 	pico = picosat_init();
 	picosat_enable_trace_generation(pico);
 
-	conf_parse(Kconfig_file);
+	if (load) conf_parse(Kconfig_file);
 
 	/* XXX: We need this to initialise values for non-boolean (and non-
 	 * tristate) variables. This should go away when we read .satconfig

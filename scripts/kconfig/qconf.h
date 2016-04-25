@@ -14,6 +14,7 @@
 #include <QSplitter>
 #include <QCheckBox>
 #include <QDialog>
+#include <QThread>
 #include "expr.h"
 
 class ConfigView;
@@ -21,6 +22,101 @@ class ConfigList;
 class ConfigItem;
 class ConfigLineEdit;
 class ConfigMainWindow;
+class ConflictView;
+class ConflictOptionList;
+class ConflictOptionItem;
+class ConflictFixList;
+class ConflictThread;
+
+struct symVal {
+	struct symbol *sym;
+	tristate val;
+};
+
+class ConflictThread : public QThread
+{
+	Q_OBJECT
+	typedef class QThread Parent;
+public:
+	ConflictThread(QObject *parent, std::vector<symVal> selectedItems);
+	void run();
+
+private:
+	std::vector<symVal> selectedItems;
+
+signals:
+	void resultReady(const QStringList);
+};
+
+class ConflictView : public QWidget {
+	Q_OBJECT
+	typedef class QWidget Parent;
+public:
+	ConflictView(QWidget *parent, const char *name);
+
+	QPushButton *n;
+	QPushButton *m;
+	QPushButton *y;
+
+public slots:
+	void setSelectedMenu(struct menu *menu);
+	void updateOptionValue(struct menu *menu);
+
+private:
+	void addSelectedOption(tristate val);
+
+	ConflictOptionList *optionList;
+	ConflictFixList *fixList;
+	struct menu* selectedMenu;
+	QStatusBar *statusBar;
+	static const int statusTimeout = 3000;
+
+private slots:
+	void setSelectedtoN(void)
+	{
+		addSelectedOption(no);
+	}
+	void setSelectedtoM(void)
+	{
+		addSelectedOption(mod);
+	}
+	void setSelectedtoY(void)
+	{
+		addSelectedOption(yes);
+	}
+	void calculateFixes(void);
+	void addFixes(QStringList lines);
+	void removeOptions(void);
+};
+
+class ConflictOptionList : public QTreeWidget {
+	Q_OBJECT
+	typedef class QTreeWidget Parent;
+public:
+	ConflictOptionList(QWidget *parent, const char *name);
+	ConflictOptionItem *getItem(symbol *sym);
+};
+
+class ConflictOptionItem : public QTreeWidgetItem {
+	typedef class QTreeWidgetItem Parent;
+public:
+	ConflictOptionItem(QTreeWidget *parent, symbol *sym, tristate val);
+	void updateWant(tristate val);
+	void updateVal(tristate val);
+
+	symbol *sym;
+	tristate wantedVal;
+
+private:
+	QString triToStr(tristate val);
+};
+
+class ConflictFixList : public QTreeWidget {
+	Q_OBJECT
+	typedef class QTreeWidget Parent;
+public:
+	ConflictFixList(QWidget *parent, const char *name);
+};
 
 class ConfigSettings : public QSettings {
 public:
@@ -73,7 +169,7 @@ signals:
 	void menuSelected(struct menu *menu);
 	void parentSelected(void);
 	void gotFocus(struct menu *);
-	void foundConflict(int);
+	void valueSet(struct menu *menu);
 
 public:
 	void updateListAll(void)
@@ -296,6 +392,7 @@ class ConfigMainWindow : public QMainWindow {
 	static void conf_changed(void);
 public:
 	ConfigMainWindow(void);
+	ConflictView *conflictView;
 public slots:
 	void changeMenu(struct menu *);
 	void setMenuLink(struct menu *);
@@ -309,10 +406,9 @@ public slots:
 	void showSplitView(void);
 	void showFullView(void);
 	void showIntro(void);
-	void showConflicts(void);
+	void showConflictView(void);
 	void showAbout(void);
 	void saveSettings(void);
-	void addConflict(int);
 
 protected:
 	void closeEvent(QCloseEvent *e);

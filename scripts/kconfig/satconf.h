@@ -16,7 +16,7 @@ struct unsat_core {
 };
 
 void satconfig_init(const char *Kconfig_file, const char *config,
-                    bool randomize);
+                    bool randomize, bool load);
 void satconfig_update_symbol(struct symbol *sym);
 void satconfig_update_all_symbols(void);
 void satconfig_solve(void);

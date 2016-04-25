@@ -564,16 +564,18 @@ GArray *rangefix_get_fixes()
 	return fixes;
 }
 
-int rangefix_init(const char *kconfig_file, const char *config)
+int rangefix_init(const char *kconfig_file, const char *config, bool load)
 {
 	unsigned int i;
 	struct symbol *sym;
 
-	setlocale(LC_ALL, "");
-	bindtextdomain(PACKAGE, LOCALEDIR);
-	textdomain(PACKAGE);
+	if (load) {
+		setlocale(LC_ALL, "");
+		bindtextdomain(PACKAGE, LOCALEDIR);
+		textdomain(PACKAGE);
+	}
 
-	satconfig_init(kconfig_file, config, false);
+	satconfig_init(kconfig_file, config, false, load);
 
 	for_all_symbols(i, sym) {
 		if (sym->flags & SYMBOL_DEF_USER)
@@ -583,9 +585,33 @@ int rangefix_init(const char *kconfig_file, const char *config)
 	return EXIT_SUCCESS;
 }
 
-int rangefix_run(const char *config, const char *val)
+GArray *rangefix_run(struct symbol *sym, tristate tri)
 {
-	unsigned int i, j;
+	GArray *diagnoses, *diagnosis, *proposal;
+	int temp_flags;
+	tristate temp_tri;
+
+	temp_flags = sym->flags;
+	sym->flags |= SYMBOL_DEF_USER;
+	sym->flags |= SYMBOL_SAT;
+
+	temp_tri = sym->curr.tri;
+	sym->curr.tri = tri;
+
+	diagnoses = rangefix_generate_diagnoses();
+
+	proposal = g_array_new(false, false, sizeof(struct symbol *));
+	g_array_append_val(proposal, sym);
+	remove_self(diagnoses, proposal);
+
+	sym->flags = temp_flags;
+	sym->curr.tri = temp_tri;
+
+	return diagnoses;
+}
+
+GArray *rangefix_run_str(const char *config, const char *val)
+{
 	struct symbol *sym;
 	tristate tri;
 	GArray *diagnoses, *diagnosis, *proposal;
@@ -595,31 +621,11 @@ int rangefix_run(const char *config, const char *val)
 		fprintf(stderr, "Unknown config name.\n.");
 		return EXIT_FAILURE;
 	}
-	sym->flags |= SYMBOL_DEF_USER;
-	sym->flags |= SYMBOL_SAT;
 	tri = extract_tristate(val);
 	if (tri == -1) {
 		fprintf(stderr, "Unknown tristate value.\n.");
 		return EXIT_FAILURE;
 	}
-	sym->curr.tri = tri;
 
-	diagnoses = rangefix_generate_diagnoses();
-
-	proposal = g_array_new(false, false, sizeof(struct symbol *));
-	g_array_append_val(proposal, sym);
-	remove_self(diagnoses, proposal);
-
-	for (i = 0; i < diagnoses->len; ++i) {
-		diagnosis = g_array_index(diagnoses, GArray *, i);
-		for (j = 0; j < diagnosis->len; ++j) {
-			printf(
-				"%s, ",
-				g_array_index(
-					diagnosis, struct symbol *, j)->name);
-		}
-		printf("\n");
-	}
-
-	return EXIT_SUCCESS;
+	return rangefix_run(sym, tri);
 }

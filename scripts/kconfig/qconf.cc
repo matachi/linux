@@ -13,9 +13,9 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QMenu>
-#include <QtConcurrentRun>
-#include <QProcess>
 #include <QObject>
+#include <QHBoxLayout>
+#include <QStatusBar>
 
 #include <qapplication.h>
 #include <qdesktopwidget.h>
@@ -34,6 +34,7 @@
 
 #include "lkc.h"
 #include "qconf.h"
+#include "rangefix.h"
 
 #include "qconf.moc"
 #include "images.c"
@@ -56,6 +57,220 @@ static inline QString qgettext(const char* str)
 static inline QString qgettext(const QString& str)
 {
 	return QString::fromLocal8Bit(gettext(str.toLatin1()));
+}
+
+ConflictView::ConflictView(QWidget* parent, const char *name)
+	: Parent(parent)
+{
+	QVBoxLayout *layout = new QVBoxLayout(this);
+	setLayout(layout);
+
+	QWidget *toolBarContainer = new QWidget(this);
+	layout->addWidget(toolBarContainer);
+	QHBoxLayout *toolBar = new QHBoxLayout(toolBarContainer);
+	toolBarContainer->setLayout(toolBar);
+
+	n = new QPushButton("N", this);
+	n->setMaximumWidth(25);
+	toolBar->addWidget(n);
+	m = new QPushButton("M", this);
+	m->setMaximumWidth(25);
+	toolBar->addWidget(m);
+	y = new QPushButton("Y", this);
+	y->setMaximumWidth(25);
+	toolBar->addWidget(y);
+
+	QPushButton *fixButton = new QPushButton("Calculate fixes", this);
+	fixButton->setMinimumWidth(110);
+	toolBar->addWidget(fixButton);
+
+	QPushButton *removeButton = new QPushButton("Remove", this);
+	removeButton->setMinimumWidth(70);
+	toolBar->addWidget(removeButton);
+
+	QSplitter* split = new QSplitter(this);
+	split->setOrientation(Qt::Vertical);
+	layout->addWidget(split);
+
+	optionList = new ConflictOptionList(split, "Selected options");
+	fixList = new ConflictFixList(split, "Fixes");
+
+	statusBar = new QStatusBar(this);
+	layout->addWidget(statusBar);
+
+	connect(n, SIGNAL(clicked(void)), SLOT(setSelectedtoN(void)));
+	connect(m, SIGNAL(clicked(void)), SLOT(setSelectedtoM(void)));
+	connect(y, SIGNAL(clicked(void)), SLOT(setSelectedtoY(void)));
+	connect(fixButton, SIGNAL(clicked(void)), SLOT(calculateFixes(void)));
+	connect(removeButton, SIGNAL(clicked(void)), SLOT(removeOptions(void)));
+
+	rangefix_init("Kconfig", ".config", false);
+}
+
+void ConflictView::setSelectedMenu(struct menu *menu)
+{
+	selectedMenu = menu;
+}
+
+void ConflictView::updateOptionValue(struct menu *menu)
+{
+	ConflictOptionItem *item = optionList->getItem(menu->sym);
+	if (item) {
+		item->updateVal(menu->sym->curr.tri);
+	}
+}
+
+void ConflictView::addSelectedOption(tristate val)
+{
+	if (!selectedMenu->sym) {
+		statusBar->showMessage("The selected entry has no symbol.", statusTimeout);
+		return;
+	}
+
+	if (selectedMenu->sym->type != S_TRISTATE) {
+		statusBar->showMessage("Only tristate options are supported.", statusTimeout);
+		return;
+	}
+
+	ConflictOptionItem *item = optionList->getItem(selectedMenu->sym);
+	if (item) {
+		if (item->wantedVal == val) {
+			statusBar->showMessage("Symbol and value already added.", statusTimeout);
+			return;
+		} else {
+			item->updateWant(val);
+			return;
+		}
+	}
+
+	new ConflictOptionItem(optionList, selectedMenu->sym, val);
+}
+
+void ConflictView::calculateFixes(void)
+{
+	std::vector<symVal> selectedItems;
+	foreach (QTreeWidgetItem *item, optionList->selectedItems()) {
+		ConflictOptionItem *option = (ConflictOptionItem *) item;
+		selectedItems.push_back(
+			(symVal) {option->sym, option->wantedVal});
+	}
+	statusBar->showMessage("Running RangeFix.");
+	ConflictThread *thread = new ConflictThread(this, selectedItems);
+	connect(
+		thread, SIGNAL(resultReady(QStringList)),
+		this, SLOT(addFixes(QStringList)));
+	thread->start();
+}
+
+void ConflictView::addFixes(QStringList lines)
+{
+	statusBar->showMessage("");
+	fixList->clear();
+	for (int i = lines.size() - 1; i >= 0; --i) {
+		QTreeWidgetItem *item = new QTreeWidgetItem(fixList);
+		QString line = lines[i];
+		item->setText(0, line);
+	}
+	fixList->show();
+}
+
+void ConflictView::removeOptions(void) {
+	foreach (QTreeWidgetItem *item, optionList->selectedItems())
+		delete item;
+}
+
+ConflictOptionList::ConflictOptionList(QWidget *parent, const char *name)
+	: Parent(parent)
+{
+	/* setSelectionMode(QAbstractItemView::MultiSelection); */
+
+	setObjectName(name);
+	setSortingEnabled(false);
+	setRootIsDecorated(true);
+
+	setVerticalScrollMode(ScrollPerPixel);
+	setHorizontalScrollMode(ScrollPerPixel);
+
+	setHeaderLabels(QStringList() << _("Option") << _("Want") << _("Value"));
+}
+
+ConflictOptionItem *ConflictOptionList::getItem(symbol *sym) {
+	foreach (QTreeWidgetItem *item, findItems("*", Qt::MatchWildcard)) {
+		ConflictOptionItem *option = (ConflictOptionItem *) item;
+		if (option->sym == sym) {
+			return option;
+		}
+	}
+	return NULL;
+}
+
+ConflictOptionItem::ConflictOptionItem(
+	QTreeWidget *parent, symbol *sym, tristate val) : Parent(parent)
+{
+	this->sym = sym;
+	setText(0, sym->name);
+	updateWant(val);
+	updateVal(sym->curr.tri);
+}
+
+void ConflictOptionItem::updateWant(tristate val)
+{
+	wantedVal = val;
+	setText(1, triToStr(val));
+}
+
+void ConflictOptionItem::updateVal(tristate val)
+{
+	setText(2, triToStr(val));
+}
+
+QString ConflictOptionItem::triToStr(tristate val)
+{
+	switch (val) {
+	case no:
+		return QString("N");
+	case mod:
+		return QString("M");
+	case yes:
+		return QString("Y");
+	}
+}
+
+ConflictFixList::ConflictFixList(QWidget *parent, const char *name)
+	: Parent(parent)
+{
+	setHeaderLabels(QStringList() << _("Fix"));
+	setSelectionMode(QAbstractItemView::NoSelection);
+}
+
+ConflictThread::ConflictThread(
+	QObject *parent, std::vector<symVal> selectedItems) : Parent(parent)
+{
+	this->selectedItems = selectedItems;
+}
+
+void ConflictThread::run()
+{
+	int i, j;
+	struct symbol *sym;
+	GArray *diagnoses, *diagnosis;
+	QStringList result, diagnosisNames;
+
+	diagnoses = rangefix_run(
+		this->selectedItems[0].sym, this->selectedItems[0].val);
+
+	result = QStringList();
+	for (i = 0; i < diagnoses->len; ++i) {
+		diagnosis = g_array_index(diagnoses, GArray *, i);
+		diagnosisNames = QStringList();
+		for (j = 0; j < diagnosis->len; ++j) {
+			sym = g_array_index(diagnosis, struct symbol *, j);
+			diagnosisNames << QString(sym->name);
+		}
+		result << QString("[%1]").arg(diagnosisNames.join(", "));
+	}
+
+	emit resultReady(result);
 }
 
 ConfigSettings::ConfigSettings()
@@ -492,39 +707,8 @@ void ConfigList::setValue(ConfigItem* item, tristate val)
 		parent()->updateList(item);
 		break;
 	}
-}
 
-int doConflictCheck(ConfigItem* item)
-{
-	qDebug() << "Do conflict check";
-
-	// Doesn't work for some reason; it dosen't read the environment variable.
-	QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-	QString kconfigreader = env.value("KCONFIGREADER", "~/dev/kconfigreader");
-	qDebug() << "KconfigReader location:" << kconfigreader;
-	//qDebug() << "KconfigReader location:" << qgetenv("KCONFIGREADER");
-
-	QString program = "java";
-	QStringList params = QStringList()
-		<< "-ea" << "-Xmx3G" << "-Xms128m" << "-Xss10m" << "-classpath" << "/home/matachi/dev/kconfigreader/target/scala-2.11/classes:/home/matachi/.ivy2/cache/org.scala-lang/scala-library/jars/scala-library-2.11.7.jar:/home/matachi/.ivy2/cache/de.fosd.typechef/featureexprlib_2.11/jars/featureexprlib_2.11-0.3.7.jar:/home/matachi/.ivy2/cache/org.scala-lang.modules/scala-parser-combinators_2.11/bundles/scala-parser-combinators_2.11-1.0.4.jar:/home/matachi/.ivy2/cache/org.scala-lang.modules/scala-xml_2.11/bundles/scala-xml_2.11-1.0.5.jar:/home/matachi/.ivy2/cache/org.ow2.sat4j/org.ow2.sat4j.core/jars/org.ow2.sat4j.core-2.3.5.jar:/home/matachi/.ivy2/cache/de.fosd.typechef/javabdd_repackaged/jars/javabdd_repackaged-1.0b2.jar" << "de.fosd.typechef.kconfig.KConfigReader" << "--writeDimacs" << "Kconfig" << "/home/matachi/dev/kconfigreader/out";
-		/* << kconfigreader + "/run.sh de.fosd.typechef.kconfig.KConfigReader \ */
-		/* --writeDimacs Kconfig out"; */
-	QProcess process;
-	process.start(program, params);
-	qDebug() << params;
-	process.waitForFinished();
-	// Doesn't read the output properly; only one line.
-	QString output = process.readAll();
-	qDebug() << output;
-	//while (process.state() == QProcess::Running) {
-	//	QString output(process.readAllStandardOutput());
-	//	qDebug() << output; */
-	//}
-	process.close();
-
-	qDebug() << "Conflict check done";
-
-	return qrand();
+	emit valueSet(item->menu);
 }
 
 void ConfigList::changeValue(ConfigItem* item)
@@ -542,10 +726,6 @@ void ConfigList::changeValue(ConfigItem* item)
 			item->setExpanded(!item->isExpanded());
 		return;
 	}
-	qDebug() << "Just changeValue";
-	QFuture<int> future = QtConcurrent::run(doConflictCheck, item);
-	emit foundConflict(future.result());
-
 
 	type = sym_get_type(sym);
 	switch (type) {
@@ -559,8 +739,10 @@ void ConfigList::changeValue(ConfigItem* item)
 			else if (oldexpr == no)
 				item->setExpanded(true);
 		}
-		if (oldexpr != newexpr)
+		if (oldexpr != newexpr) {
 			parent()->updateList(item);
+			emit valueSet(menu);
+		}
 		break;
 	case S_INT:
 	case S_HEX:
@@ -1315,6 +1497,10 @@ ConfigSearchWindow::ConfigSearchWindow(ConfigMainWindow* parent, const char *nam
 		info, SLOT(setInfo(struct menu *)));
 	connect(list->list, SIGNAL(menuChanged(struct menu *)),
 		parent, SLOT(setMenuLink(struct menu *)));
+	connect(list->list, SIGNAL(menuChanged(struct menu *)),
+		parent, SLOT(setMenuLink(struct menu *)));
+	connect(list->list, SIGNAL(valueSet(struct menu *)),
+		parent->conflictView, SLOT(updateOptionValue(struct menu *)));
 
 	layout1->addWidget(split);
 
@@ -1372,10 +1558,6 @@ void ConfigSearchWindow::search(void)
 	}
 }
 
-void ConfigMainWindow::addConflict(int something) {
-	conflictsList->addItem(QString("Conflict check did some job: %1").arg(something));
-}
-
 /*
  * Construct the complete config widget
  */
@@ -1409,18 +1591,16 @@ ConfigMainWindow::ConfigMainWindow(void)
 
 	menuView = new ConfigView(split1, "menu");
 	menuList = menuView->list;
-	connect(menuList, SIGNAL(foundConflict(int)), SLOT(addConflict(int)));
 
 	split2 = new QSplitter(split1);
 	split2->setOrientation(Qt::Vertical);
 
-	conflictsList = new QListWidget(split1);
-	conflictsList->addItem("ConflictsView");
+	conflictView = new ConflictView(split1, "conflicts");
+	conflictView->hide();
 
 	// create config tree
 	configView = new ConfigView(split2, "config");
 	configList = configView->list;
-	connect(configList, SIGNAL(foundConflict(int)), SLOT(addConflict(int)));
 
 	helpText = new ConfigInfoView(split2, "help");
 
@@ -1462,7 +1642,7 @@ ConfigMainWindow::ConfigMainWindow(void)
 	  connect(fullViewAction, SIGNAL(triggered(bool)), SLOT(showFullView()));
 	conflictsAction = new QAction(QPixmap(xpm_conflicts), _("Conflicts View"), this);
 	conflictsAction->setCheckable(true);
-	  connect(conflictsAction, SIGNAL(triggered(bool)), SLOT(showConflicts()));
+	  connect(conflictsAction, SIGNAL(triggered(bool)), SLOT(showConflictView()));
 
 	QAction *showNameAction = new QAction(_("Show Name"), this);
 	  showNameAction->setCheckable(true);
@@ -1549,6 +1729,15 @@ ConfigMainWindow::ConfigMainWindow(void)
 	connect(menuList, SIGNAL(menuSelected(struct menu *)),
 		SLOT(changeMenu(struct menu *)));
 
+	connect(menuList, SIGNAL(menuChanged(struct menu *)),
+		conflictView, SLOT(setSelectedMenu(struct menu *)));
+	connect(menuList, SIGNAL(valueSet(struct menu *)),
+		conflictView, SLOT(updateOptionValue(struct menu *)));
+	connect(configList, SIGNAL(menuChanged(struct menu *)),
+		conflictView, SLOT(setSelectedMenu(struct menu *)));
+	connect(configList, SIGNAL(valueSet(struct menu *)),
+		conflictView, SLOT(updateOptionValue(struct menu *)));
+
 	connect(configList, SIGNAL(gotFocus(struct menu *)),
 		helpText, SLOT(setInfo(struct menu *)));
 	connect(menuList, SIGNAL(gotFocus(struct menu *)),
@@ -1576,10 +1765,10 @@ ConfigMainWindow::ConfigMainWindow(void)
 		split2->setSizes(sizes);
 
 	QVariant showConflicts = configSettings->value("/showConflicts", true);
-	if (showConflicts.toBool())
-		conflictsAction->setChecked(true);
-	else
-		conflictsList->hide();
+	if (showConflicts.toBool()) {
+		conflictsAction->toggle();
+		showConflictView();
+	}
 }
 
 void ConfigMainWindow::loadConfig(void)
@@ -1815,13 +2004,15 @@ void ConfigMainWindow::showIntro(void)
 	QMessageBox::information(this, "qconf", str);
 }
 
-void ConfigMainWindow::showConflicts(void)
+void ConfigMainWindow::showConflictView(void)
 {
-	if (conflictsList->isVisible())
-		conflictsList->hide();
+	bool visible = conflictView->isVisible();
+	if (visible)
+		conflictView->hide();
 	else
-		conflictsList->show();
-	configSettings->setValue("/showConflicts", conflictsList->isVisible());
+		conflictView->show();
+	visible = !visible;
+	configSettings->setValue("/showConflicts", visible);
 }
 
 void ConfigMainWindow::showAbout(void)
