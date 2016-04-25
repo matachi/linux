@@ -224,8 +224,8 @@ HOSTLOADLIBES_gconf	= `pkg-config --libs gtk+-2.0 gmodule-2.0 libglade-2.0`
 HOSTCFLAGS_gconf.o	= `pkg-config --cflags gtk+-2.0 gmodule-2.0 libglade-2.0` \
                           -Wno-missing-prototypes
 
-HOSTLOADLIBES_rangefixconfig	:= $(shell pkg-config --libs check glib-2.0)
-HOSTCFLAGS_rangefixconfig.o	:= $(shell pkg-config --cflags check glib-2.0)
+HOSTLOADLIBES_rangefixconfig	:= $(shell pkg-config --libs glib-2.0)
+HOSTCFLAGS_rangefixconfig.o	:= $(shell pkg-config --cflags glib-2.0)
 
 HOSTLOADLIBES_rangefixtest	:= $(shell pkg-config --libs check glib-2.0)
 HOSTCFLAGS_rangefixtest.o	:= $(shell pkg-config --cflags check glib-2.0)
