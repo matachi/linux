@@ -10,6 +10,10 @@
   extern "C" {
 #endif
 
+gint64 time_find_diagnoses;
+gint64 time_simplify_diagnoses;
+unsigned int iterations;
+
 int rangefix_init(const char *, const char *, bool load);
 GArray *rangefix_run(struct symbol *sym, tristate);
 GArray *rangefix_run_str(const char *sym, const char *val);

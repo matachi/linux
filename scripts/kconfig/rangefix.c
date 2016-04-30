@@ -246,6 +246,8 @@ GArray *rangefix_generate_diagnoses(void)
 
 	GRand *rand = g_rand_new();
 	while (E->len > 0) {
+		++iterations;
+
 		/* A random partial diagnosis in E */
 		diagnosis_index = g_rand_int_range(rand, 0, E->len);
 		GArray *E0 = g_array_index(E, GArray *, diagnosis_index);
@@ -264,8 +266,12 @@ GArray *rangefix_generate_diagnoses(void)
 			DEBUG("Satisfiable\n");
 			print_array("Found diagnosis", E0);
 
+			gint64 time_simplify_start = g_get_monotonic_time();
 			E0 = satconfig_minimize_diagnosis(c, E0);
 			print_array("Simplified diagnosis", E0);
+			gint64 time_simplify_end = g_get_monotonic_time();
+			time_simplify_diagnoses +=
+				time_simplify_end - time_simplify_start;
 
 			E = g_array_remove_index(E, diagnosis_index);
 			if (E0->len > 0)
@@ -606,7 +612,16 @@ GArray *rangefix_run(struct symbol *sym, tristate tri)
 	temp_tri = sym->curr.tri;
 	sym->curr.tri = tri;
 
+	time_find_diagnoses = 0;
+	time_simplify_diagnoses = 0;
+	gint64 time_find_diagnoses_start = g_get_monotonic_time();
+
 	diagnoses = rangefix_generate_diagnoses();
+
+	gint64 time_find_diagnoses_end = g_get_monotonic_time();
+	time_find_diagnoses +=
+		time_find_diagnoses_end - time_find_diagnoses_start;
+	time_find_diagnoses -= time_simplify_diagnoses;
 
 	proposal = g_array_new(false, false, sizeof(struct symbol *));
 	g_array_append_val(proposal, sym);
