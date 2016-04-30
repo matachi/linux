@@ -26,16 +26,20 @@ static struct symbol *extract_sym(const char *config)
 
 static tristate extract_tristate(const char *val)
 {
-	unsigned int i;
+	tristate tri;
+	char *val2;
 
-	val = g_ascii_strdown(val, -1);
-	if (g_strcmp0(val, "no") == 0)
-		return no;
-	else if (g_strcmp0(val, "mod") == 0)
-		return mod;
-	else if (g_strcmp0(val, "yes") == 0)
-		return yes;
-	return -1;
+	val2 = g_ascii_strdown(val, -1);
+	if (g_strcmp0(val2, "no") == 0)
+		tri = no;
+	else if (g_strcmp0(val2, "mod") == 0)
+		tri = mod;
+	else if (g_strcmp0(val2, "yes") == 0)
+		tri = yes;
+	else
+		return -1;
+	g_free(val2);
+	return tri;
 }
 
 static GArray *set_difference(GArray *set1, GArray *set2)
