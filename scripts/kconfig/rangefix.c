@@ -334,12 +334,16 @@ GArray *rangefix_generate_diagnoses(void)
 					}
 				}
 
+				g_array_free(E_R_union, false);
+
 				/* ∄ E" ⊆ E' */
 				if (!E2_subset_of_E1) {
 					/* E = E ∪ {E'} */
 					E = g_array_append_val(E, E1);
 					print_array(
 						"Add partial diagnosis", E1);
+				} else {
+					g_array_free(E1, false);
 				}
 
 			}
