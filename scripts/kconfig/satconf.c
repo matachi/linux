@@ -1386,6 +1386,13 @@ GArray *satconfig_minimize_diagnosis(GArray *configuration, GArray *diagnosis)
 	for (i = 0; i < diagnosis->len; ++i) {
 		sym = g_array_index(diagnosis, struct symbol *, i);
 
+		/* if (sym->flags & SYMBOL_DEF) { */
+		/* 	continue; */
+		/* } */
+
+		if (sym->type == S_UNKNOWN)
+			continue;
+
 		/* Lock the configuration */
 		satconfig_set_symbols(configuration);
 
@@ -1399,6 +1406,20 @@ GArray *satconfig_minimize_diagnosis(GArray *configuration, GArray *diagnosis)
 			 * which means that this symbol is superfluous and does
 			 * not need to be set explicitly by the user.
 			 */
+
+			if (picosat_deref(pico, sym_selected(sym)) == -1 && sym->flags & SYMBOL_DEF)
+				/* The symbol is not selected, but it is
+				 * defined in the .config file. This means that
+				 * it needs to be manually changed, otherwise
+				 * it wouldn't be part of the diagnosis.
+				 *
+				 * However, if it is selected or not defined in
+				 * the .config file, i.e. it has its default
+				 * value, then it the user doesn't need to set
+				 * it.
+				 */
+				continue;
+
 			diagnosis = g_array_remove_index(diagnosis, i--);
 			break;
 		case SATCONFIG_UNSATISFIABLE:
