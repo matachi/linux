@@ -228,7 +228,7 @@ GArray *rangefix_generate_diagnoses(void)
 	/* Create constraint set C */
 	for_all_symbols(i, sym) {
 		if ((sym->type == S_BOOLEAN || sym->type == S_TRISTATE) &&
-		    sym->name) {
+		    sym->name && sym_has_prompt(sym)) {
 			/* Include all bools and tristates that have names in
 			 * the configuration. These are all supported symbols
 			 * that the user may specify in the .config file.
