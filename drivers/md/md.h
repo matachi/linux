@@ -566,7 +566,9 @@ static inline char * mdname (struct mddev * mddev)
 static inline int sysfs_link_rdev(struct mddev *mddev, struct md_rdev *rdev)
 {
 	char nm[20];
-	if (!test_bit(Replacement, &rdev->flags) && mddev->kobj.sd) {
+	if (!test_bit(Replacement, &rdev->flags) &&
+	    !test_bit(Journal, &rdev->flags) &&
+	    mddev->kobj.sd) {
 		sprintf(nm, "rd%d", rdev->raid_disk);
 		return sysfs_create_link(&mddev->kobj, &rdev->kobj, nm);
 	} else
@@ -576,7 +578,9 @@ static inline int sysfs_link_rdev(struct mddev *mddev, struct md_rdev *rdev)
 static inline void sysfs_unlink_rdev(struct mddev *mddev, struct md_rdev *rdev)
 {
 	char nm[20];
-	if (!test_bit(Replacement, &rdev->flags) && mddev->kobj.sd) {
+	if (!test_bit(Replacement, &rdev->flags) &&
+	    !test_bit(Journal, &rdev->flags) &&
+	    mddev->kobj.sd) {
 		sprintf(nm, "rd%d", rdev->raid_disk);
 		sysfs_remove_link(&mddev->kobj, nm);
 	}
@@ -653,7 +657,7 @@ extern void md_wait_for_blocked_rdev(struct md_rdev *rdev, struct mddev *mddev);
 extern void md_set_array_sectors(struct mddev *mddev, sector_t array_sectors);
 extern int md_check_no_bitmap(struct mddev *mddev);
 extern int md_integrity_register(struct mddev *mddev);
-extern void md_integrity_add_rdev(struct md_rdev *rdev, struct mddev *mddev);
+extern int md_integrity_add_rdev(struct md_rdev *rdev, struct mddev *mddev);
 extern int strict_strtoul_scaled(const char *cp, unsigned long *res, int scale);
 
 extern void mddev_init(struct mddev *mddev);

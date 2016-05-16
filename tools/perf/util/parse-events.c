@@ -124,6 +124,10 @@ struct event_symbol event_symbols_sw[PERF_COUNT_SW_MAX] = {
 		.symbol = "dummy",
 		.alias  = "",
 	},
+	[PERF_COUNT_SW_BPF_OUTPUT] = {
+		.symbol = "bpf-output",
+		.alias  = "",
+	},
 };
 
 #define __PERF_EVENT_FIELD(config, name) \
@@ -394,6 +398,9 @@ static void tracepoint_error(struct parse_events_error *e, int err,
 			     char *sys, char *name)
 {
 	char help[BUFSIZ];
+
+	if (!e)
+		return;
 
 	/*
 	 * We get error directly from syscall errno ( > 0),
@@ -1879,7 +1886,7 @@ restart:
 
 	for (i = 0; i < max; i++, syms++) {
 
-		if (event_glob != NULL &&
+		if (event_glob != NULL && syms->symbol != NULL &&
 		    !(strglobmatch(syms->symbol, event_glob) ||
 		      (syms->alias && strglobmatch(syms->alias, event_glob))))
 			continue;
@@ -2094,11 +2101,11 @@ char *parse_events_formats_error_string(char *additional_terms)
 
 	/* valid terms */
 	if (additional_terms) {
-		if (!asprintf(&str, "valid terms: %s,%s",
-			      additional_terms, static_terms))
+		if (asprintf(&str, "valid terms: %s,%s",
+			     additional_terms, static_terms) < 0)
 			goto fail;
 	} else {
-		if (!asprintf(&str, "valid terms: %s", static_terms))
+		if (asprintf(&str, "valid terms: %s", static_terms) < 0)
 			goto fail;
 	}
 	return str;

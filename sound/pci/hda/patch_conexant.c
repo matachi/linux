@@ -204,8 +204,13 @@ static void cx_auto_reboot_notify(struct hda_codec *codec)
 {
 	struct conexant_spec *spec = codec->spec;
 
-	if (codec->core.vendor_id != 0x14f150f2)
+	switch (codec->core.vendor_id) {
+	case 0x14f150f2: /* CX20722 */
+	case 0x14f150f4: /* CX20724 */
+		break;
+	default:
 		return;
+	}
 
 	/* Turn the CX20722 codec into D3 to avoid spurious noises
 	   from the internal speaker during (and after) reboot */
@@ -955,6 +960,7 @@ static int patch_conexant_auto(struct hda_codec *codec)
  */
 
 static const struct hda_device_id snd_hda_id_conexant[] = {
+	HDA_CODEC_ENTRY(0x14f12008, "CX8200", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f15045, "CX20549 (Venice)", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f15047, "CX20551 (Waikiki)", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f15051, "CX20561 (Hermosa)", patch_conexant_auto),
@@ -972,9 +978,9 @@ static const struct hda_device_id snd_hda_id_conexant[] = {
 	HDA_CODEC_ENTRY(0x14f150ac, "CX20652", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f150b8, "CX20664", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f150b9, "CX20665", patch_conexant_auto),
-	HDA_CODEC_ENTRY(0x14f150f1, "CX20721", patch_conexant_auto),
+	HDA_CODEC_ENTRY(0x14f150f1, "CX21722", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f150f2, "CX20722", patch_conexant_auto),
-	HDA_CODEC_ENTRY(0x14f150f3, "CX20723", patch_conexant_auto),
+	HDA_CODEC_ENTRY(0x14f150f3, "CX21724", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f150f4, "CX20724", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f1510f, "CX20751/2", patch_conexant_auto),
 	HDA_CODEC_ENTRY(0x14f15110, "CX20751/2", patch_conexant_auto),

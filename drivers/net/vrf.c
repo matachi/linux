@@ -114,20 +114,23 @@ static struct dst_ops vrf_dst_ops = {
 #if IS_ENABLED(CONFIG_IPV6)
 static bool check_ipv6_frame(const struct sk_buff *skb)
 {
-	const struct ipv6hdr *ipv6h = (struct ipv6hdr *)skb->data;
-	size_t hlen = sizeof(*ipv6h);
+	const struct ipv6hdr *ipv6h;
+	struct ipv6hdr _ipv6h;
 	bool rc = true;
 
-	if (skb->len < hlen)
+	ipv6h = skb_header_pointer(skb, 0, sizeof(_ipv6h), &_ipv6h);
+	if (!ipv6h)
 		goto out;
 
 	if (ipv6h->nexthdr == NEXTHDR_ICMP) {
 		const struct icmp6hdr *icmph;
+		struct icmp6hdr _icmph;
 
-		if (skb->len < hlen + sizeof(*icmph))
+		icmph = skb_header_pointer(skb, sizeof(_ipv6h),
+					   sizeof(_icmph), &_icmph);
+		if (!icmph)
 			goto out;
 
-		icmph = (struct icmp6hdr *)(skb->data + sizeof(*ipv6h));
 		switch (icmph->icmp6_type) {
 		case NDISC_ROUTER_SOLICITATION:
 		case NDISC_ROUTER_ADVERTISEMENT:
@@ -800,7 +803,7 @@ static struct rtable *vrf_get_rtable(const struct net_device *dev,
 }
 
 /* called under rcu_read_lock */
-static void vrf_get_saddr(struct net_device *dev, struct flowi4 *fl4)
+static int vrf_get_saddr(struct net_device *dev, struct flowi4 *fl4)
 {
 	struct fib_result res = { .tclassid = 0 };
 	struct net *net = dev_net(dev);
@@ -808,9 +811,10 @@ static void vrf_get_saddr(struct net_device *dev, struct flowi4 *fl4)
 	u8 flags = fl4->flowi4_flags;
 	u8 scope = fl4->flowi4_scope;
 	u8 tos = RT_FL_TOS(fl4);
+	int rc;
 
 	if (unlikely(!fl4->daddr))
-		return;
+		return 0;
 
 	fl4->flowi4_flags |= FLOWI_FLAG_SKIP_NH_OIF;
 	fl4->flowi4_iif = LOOPBACK_IFINDEX;
@@ -818,7 +822,8 @@ static void vrf_get_saddr(struct net_device *dev, struct flowi4 *fl4)
 	fl4->flowi4_scope = ((tos & RTO_ONLINK) ?
 			     RT_SCOPE_LINK : RT_SCOPE_UNIVERSE);
 
-	if (!fib_lookup(net, fl4, &res, 0)) {
+	rc = fib_lookup(net, fl4, &res, 0);
+	if (!rc) {
 		if (res.type == RTN_LOCAL)
 			fl4->saddr = res.fi->fib_prefsrc ? : fl4->daddr;
 		else
@@ -828,6 +833,8 @@ static void vrf_get_saddr(struct net_device *dev, struct flowi4 *fl4)
 	fl4->flowi4_flags = flags;
 	fl4->flowi4_tos = orig_tos;
 	fl4->flowi4_scope = scope;
+
+	return rc;
 }
 
 #if IS_ENABLED(CONFIG_IPV6)
@@ -907,7 +914,6 @@ static int vrf_newlink(struct net *src_net, struct net_device *dev,
 		       struct nlattr *tb[], struct nlattr *data[])
 {
 	struct net_vrf *vrf = netdev_priv(dev);
-	int err;
 
 	if (!data || !data[IFLA_VRF_TABLE])
 		return -EINVAL;
@@ -916,15 +922,7 @@ static int vrf_newlink(struct net *src_net, struct net_device *dev,
 
 	dev->priv_flags |= IFF_L3MDEV_MASTER;
 
-	err = register_netdevice(dev);
-	if (err < 0)
-		goto out_fail;
-
-	return 0;
-
-out_fail:
-	free_netdev(dev);
-	return err;
+	return register_netdevice(dev);
 }
 
 static size_t vrf_nl_getsize(const struct net_device *dev)

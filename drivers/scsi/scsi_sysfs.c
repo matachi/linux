@@ -1102,6 +1102,14 @@ void __scsi_remove_device(struct scsi_device *sdev)
 {
 	struct device *dev = &sdev->sdev_gendev;
 
+	/*
+	 * This cleanup path is not reentrant and while it is impossible
+	 * to get a new reference with scsi_device_get() someone can still
+	 * hold a previously acquired one.
+	 */
+	if (sdev->sdev_state == SDEV_DEL)
+		return;
+
 	if (sdev->is_visible) {
 		if (scsi_device_set_state(sdev, SDEV_CANCEL) != 0)
 			return;
@@ -1110,7 +1118,9 @@ void __scsi_remove_device(struct scsi_device *sdev)
 		device_unregister(&sdev->sdev_dev);
 		transport_remove_device(dev);
 		scsi_dh_remove_device(sdev);
-	}
+		device_del(dev);
+	} else
+		put_device(&sdev->sdev_dev);
 
 	/*
 	 * Stop accepting new requests and wait until all queuecommand() and
@@ -1120,16 +1130,6 @@ void __scsi_remove_device(struct scsi_device *sdev)
 	scsi_device_set_state(sdev, SDEV_DEL);
 	blk_cleanup_queue(sdev->request_queue);
 	cancel_work_sync(&sdev->requeue_work);
-
-	/*
-	 * Remove the device after blk_cleanup_queue() has been called such
-	 * a possible bdi_register() call with the same name occurs after
-	 * blk_cleanup_queue() has called bdi_destroy().
-	 */
-	if (sdev->is_visible)
-		device_del(dev);
-	else
-		put_device(&sdev->sdev_dev);
 
 	if (sdev->host->hostt->slave_destroy)
 		sdev->host->hostt->slave_destroy(sdev);
@@ -1192,16 +1192,18 @@ static void __scsi_remove_target(struct scsi_target *starget)
 void scsi_remove_target(struct device *dev)
 {
 	struct Scsi_Host *shost = dev_to_shost(dev->parent);
-	struct scsi_target *starget;
+	struct scsi_target *starget, *last_target = NULL;
 	unsigned long flags;
 
 restart:
 	spin_lock_irqsave(shost->host_lock, flags);
 	list_for_each_entry(starget, &shost->__targets, siblings) {
-		if (starget->state == STARGET_DEL)
+		if (starget->state == STARGET_DEL ||
+		    starget == last_target)
 			continue;
 		if (starget->dev.parent == dev || &starget->dev == dev) {
 			kref_get(&starget->reap_ref);
+			last_target = starget;
 			spin_unlock_irqrestore(shost->host_lock, flags);
 			__scsi_remove_target(starget);
 			scsi_target_reap(starget);

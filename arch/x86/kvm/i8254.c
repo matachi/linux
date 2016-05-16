@@ -245,7 +245,7 @@ static void kvm_pit_ack_irq(struct kvm_irq_ack_notifier *kian)
 		 * PIC is being reset.  Handle it gracefully here
 		 */
 		atomic_inc(&ps->pending);
-	else if (value > 0)
+	else if (value > 0 && ps->reinject)
 		/* in this case, we had multiple outstanding pit interrupts
 		 * that we needed to inject.  Reinject
 		 */
@@ -288,7 +288,9 @@ static void pit_do_work(struct kthread_work *work)
 	 * last one has been acked.
 	 */
 	spin_lock(&ps->inject_lock);
-	if (ps->irq_ack) {
+	if (!ps->reinject)
+		inject = 1;
+	else if (ps->irq_ack) {
 		ps->irq_ack = 0;
 		inject = 1;
 	}
@@ -317,10 +319,10 @@ static enum hrtimer_restart pit_timer_fn(struct hrtimer *data)
 	struct kvm_kpit_state *ps = container_of(data, struct kvm_kpit_state, timer);
 	struct kvm_pit *pt = ps->kvm->arch.vpit;
 
-	if (ps->reinject || !atomic_read(&ps->pending)) {
+	if (ps->reinject)
 		atomic_inc(&ps->pending);
-		queue_kthread_work(&pt->worker, &pt->expired);
-	}
+
+	queue_kthread_work(&pt->worker, &pt->expired);
 
 	if (ps->is_periodic) {
 		hrtimer_add_expires_ns(&ps->timer, ps->period);
@@ -420,6 +422,7 @@ void kvm_pit_load_count(struct kvm *kvm, int channel, u32 val, int hpet_legacy_s
 	u8 saved_mode;
 	if (hpet_legacy_start) {
 		/* save existing mode for later reenablement */
+		WARN_ON(channel != 0);
 		saved_mode = kvm->arch.vpit->pit_state.channels[0].mode;
 		kvm->arch.vpit->pit_state.channels[0].mode = 0xff; /* disable timer */
 		pit_load_count(kvm, channel, val);

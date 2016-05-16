@@ -254,6 +254,7 @@ struct queue_limits {
 	unsigned long		virt_boundary_mask;
 
 	unsigned int		max_hw_sectors;
+	unsigned int		max_dev_sectors;
 	unsigned int		chunk_sectors;
 	unsigned int		max_sectors;
 	unsigned int		max_segment_size;
@@ -773,7 +774,6 @@ extern void blk_rq_set_block_pc(struct request *);
 extern void blk_requeue_request(struct request_queue *, struct request *);
 extern void blk_add_request_payload(struct request *rq, struct page *page,
 		unsigned int len);
-extern int blk_rq_check_limits(struct request_queue *q, struct request *rq);
 extern int blk_lld_busy(struct request_queue *q);
 extern int blk_rq_prep_clone(struct request *rq, struct request *rq_src,
 			     struct bio_set *bs, gfp_t gfp_mask,
@@ -797,6 +797,7 @@ extern int sg_scsi_ioctl(struct request_queue *, struct gendisk *, fmode_t,
 extern int blk_queue_enter(struct request_queue *q, gfp_t gfp);
 extern void blk_queue_exit(struct request_queue *q);
 extern void blk_start_queue(struct request_queue *q);
+extern void blk_start_queue_async(struct request_queue *q);
 extern void blk_stop_queue(struct request_queue *q);
 extern void blk_sync_queue(struct request_queue *q);
 extern void __blk_stop_queue(struct request_queue *q);
@@ -960,7 +961,6 @@ extern struct request_queue *blk_init_allocated_queue(struct request_queue *,
 extern void blk_cleanup_queue(struct request_queue *);
 extern void blk_queue_make_request(struct request_queue *, make_request_fn *);
 extern void blk_queue_bounce_limit(struct request_queue *, u64);
-extern void blk_limits_max_hw_sectors(struct queue_limits *, unsigned int);
 extern void blk_queue_max_hw_sectors(struct request_queue *, unsigned int);
 extern void blk_queue_chunk_sectors(struct request_queue *, unsigned int);
 extern void blk_queue_max_segments(struct request_queue *, unsigned short);
@@ -1367,6 +1367,13 @@ static inline void put_dev_sector(Sector p)
 	page_cache_release(p.v);
 }
 
+static inline bool __bvec_gap_to_prev(struct request_queue *q,
+				struct bio_vec *bprv, unsigned int offset)
+{
+	return offset ||
+		((bprv->bv_offset + bprv->bv_len) & queue_virt_boundary(q));
+}
+
 /*
  * Check if adding a bio_vec after bprv with offset would create a gap in
  * the SG list. Most drivers don't care about this, but some do.
@@ -1376,18 +1383,22 @@ static inline bool bvec_gap_to_prev(struct request_queue *q,
 {
 	if (!queue_virt_boundary(q))
 		return false;
-	return offset ||
-		((bprv->bv_offset + bprv->bv_len) & queue_virt_boundary(q));
+	return __bvec_gap_to_prev(q, bprv, offset);
 }
 
 static inline bool bio_will_gap(struct request_queue *q, struct bio *prev,
 			 struct bio *next)
 {
-	if (!bio_has_data(prev))
-		return false;
+	if (bio_has_data(prev) && queue_virt_boundary(q)) {
+		struct bio_vec pb, nb;
 
-	return bvec_gap_to_prev(q, &prev->bi_io_vec[prev->bi_vcnt - 1],
-				next->bi_io_vec[0].bv_offset);
+		bio_get_last_bvec(prev, &pb);
+		bio_get_first_bvec(next, &nb);
+
+		return __bvec_gap_to_prev(q, &pb, nb.bv_offset);
+	}
+
+	return false;
 }
 
 static inline bool req_gap_back_merge(struct request *req, struct bio *bio)

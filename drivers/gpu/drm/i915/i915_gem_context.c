@@ -141,8 +141,6 @@ static void i915_gem_context_clean(struct intel_context *ctx)
 	if (!ppgtt)
 		return;
 
-	WARN_ON(!list_empty(&ppgtt->base.active_list));
-
 	list_for_each_entry_safe(vma, next, &ppgtt->base.inactive_list,
 				 mm_list) {
 		if (WARN_ON(__i915_vma_unbind_no_wait(vma)))
@@ -342,6 +340,10 @@ void i915_gem_context_reset(struct drm_device *dev)
 			i915_gem_context_unreference(lctx);
 			ring->last_context = NULL;
 		}
+
+		/* Force the GPU state to be reinitialised on enabling */
+		if (ring->default_context)
+			ring->default_context->legacy_hw_ctx.initialized = false;
 	}
 }
 
@@ -710,7 +712,7 @@ static int do_switch(struct drm_i915_gem_request *req)
 	if (ret)
 		goto unpin_out;
 
-	if (!to->legacy_hw_ctx.initialized) {
+	if (!to->legacy_hw_ctx.initialized || i915_gem_context_is_default(to)) {
 		hw_flags |= MI_RESTORE_INHIBIT;
 		/* NB: If we inhibit the restore, the context is not allowed to
 		 * die because future work may end up depending on valid address

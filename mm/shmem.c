@@ -620,8 +620,7 @@ static void shmem_evict_inode(struct inode *inode)
 			list_del_init(&info->swaplist);
 			mutex_unlock(&shmem_swaplist_mutex);
 		}
-	} else
-		kfree(info->symlink);
+	}
 
 	simple_xattrs_free(&info->xattrs);
 	WARN_ON(inode->i_blocks);
@@ -843,13 +842,13 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 		list_add_tail(&info->swaplist, &shmem_swaplist);
 
 	if (add_to_swap_cache(page, swap, GFP_ATOMIC) == 0) {
+		spin_lock(&info->lock);
+		shmem_recalc_inode(inode);
+		info->swapped++;
+		spin_unlock(&info->lock);
+
 		swap_shmem_alloc(swap);
 		shmem_delete_from_page_cache(page, swp_to_radix_entry(swap));
-
-		spin_lock(&info->lock);
-		info->swapped++;
-		shmem_recalc_inode(inode);
-		spin_unlock(&info->lock);
 
 		mutex_unlock(&shmem_swaplist_mutex);
 		BUG_ON(page_mapped(page));
@@ -1078,7 +1077,7 @@ repeat:
 	if (sgp != SGP_WRITE && sgp != SGP_FALLOC &&
 	    ((loff_t)index << PAGE_CACHE_SHIFT) >= i_size_read(inode)) {
 		error = -EINVAL;
-		goto failed;
+		goto unlock;
 	}
 
 	if (page && sgp == SGP_WRITE)
@@ -1246,11 +1245,15 @@ clear:
 	/* Perhaps the file has been truncated since we checked */
 	if (sgp != SGP_WRITE && sgp != SGP_FALLOC &&
 	    ((loff_t)index << PAGE_CACHE_SHIFT) >= i_size_read(inode)) {
+		if (alloced) {
+			ClearPageDirty(page);
+			delete_from_page_cache(page);
+			spin_lock(&info->lock);
+			shmem_recalc_inode(inode);
+			spin_unlock(&info->lock);
+		}
 		error = -EINVAL;
-		if (alloced)
-			goto trunc;
-		else
-			goto failed;
+		goto unlock;
 	}
 	*pagep = page;
 	return 0;
@@ -1258,23 +1261,13 @@ clear:
 	/*
 	 * Error recovery.
 	 */
-trunc:
-	info = SHMEM_I(inode);
-	ClearPageDirty(page);
-	delete_from_page_cache(page);
-	spin_lock(&info->lock);
-	info->alloced--;
-	inode->i_blocks -= BLOCKS_PER_PAGE;
-	spin_unlock(&info->lock);
 decused:
-	sbinfo = SHMEM_SB(inode->i_sb);
 	if (sbinfo->max_blocks)
 		percpu_counter_add(&sbinfo->used_blocks, -1);
 unacct:
 	shmem_unacct_blocks(info->flags, 1);
 failed:
-	if (swap.val && error != -EINVAL &&
-	    !shmem_confirm_swap(mapping, index, swap))
+	if (swap.val && !shmem_confirm_swap(mapping, index, swap))
 		error = -EEXIST;
 unlock:
 	if (page) {
@@ -2468,13 +2461,12 @@ static int shmem_symlink(struct inode *dir, struct dentry *dentry, const char *s
 	info = SHMEM_I(inode);
 	inode->i_size = len-1;
 	if (len <= SHORT_SYMLINK_LEN) {
-		info->symlink = kmemdup(symname, len, GFP_KERNEL);
-		if (!info->symlink) {
+		inode->i_link = kmemdup(symname, len, GFP_KERNEL);
+		if (!inode->i_link) {
 			iput(inode);
 			return -ENOMEM;
 		}
 		inode->i_op = &shmem_short_symlink_operations;
-		inode->i_link = info->symlink;
 	} else {
 		error = shmem_getpage(inode, 0, &page, SGP_WRITE, NULL);
 		if (error) {
@@ -3089,6 +3081,7 @@ static struct inode *shmem_alloc_inode(struct super_block *sb)
 static void shmem_destroy_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
+	kfree(inode->i_link);
 	kmem_cache_free(shmem_inode_cachep, SHMEM_I(inode));
 }
 

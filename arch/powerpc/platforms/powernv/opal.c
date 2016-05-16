@@ -278,7 +278,7 @@ static void opal_handle_message(void)
 
 	/* Sanity check */
 	if (type >= OPAL_MSG_TYPE_MAX) {
-		pr_warning("%s: Unknown message type: %u\n", __func__, type);
+		pr_warn_once("%s: Unknown message type: %u\n", __func__, type);
 		return;
 	}
 	opal_message_do_notify(type, (void *)&msg);
@@ -757,6 +757,9 @@ static int __init opal_init(void)
 	opal_pdev_init(opal_node, "ibm,opal-ipmi");
 	opal_pdev_init(opal_node, "ibm,opal-flash");
 	opal_pdev_init(opal_node, "ibm,opal-prd");
+
+	/* Initialise OPAL kmsg dumper for flushing console on panic */
+	opal_kmsg_init();
 
 	return 0;
 }

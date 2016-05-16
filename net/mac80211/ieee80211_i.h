@@ -92,7 +92,7 @@ struct ieee80211_fragment_entry {
 	u16 extra_len;
 	u16 last_frag;
 	u8 rx_queue;
-	bool ccmp; /* Whether fragments were encrypted with CCMP */
+	bool check_sequential_pn; /* needed for CCMP/GCMP */
 	u8 last_pn[6]; /* PN of the last fragment if CCMP was used */
 };
 
@@ -1709,10 +1709,10 @@ enum ieee80211_sta_rx_bandwidth ieee80211_sta_cur_vht_bw(struct sta_info *sta);
 void ieee80211_sta_set_rx_nss(struct sta_info *sta);
 u32 __ieee80211_vht_handle_opmode(struct ieee80211_sub_if_data *sdata,
                                   struct sta_info *sta, u8 opmode,
-                                  enum ieee80211_band band, bool nss_only);
+				  enum ieee80211_band band);
 void ieee80211_vht_handle_opmode(struct ieee80211_sub_if_data *sdata,
 				 struct sta_info *sta, u8 opmode,
-				 enum ieee80211_band band, bool nss_only);
+				 enum ieee80211_band band);
 void ieee80211_apply_vhtcap_overrides(struct ieee80211_sub_if_data *sdata,
 				      struct ieee80211_sta_vht_cap *vht_cap);
 void ieee80211_get_vht_mask_from_cap(__le16 vht_cap,

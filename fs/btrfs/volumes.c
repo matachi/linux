@@ -232,6 +232,7 @@ static struct btrfs_device *__alloc_device(void)
 	spin_lock_init(&dev->reada_lock);
 	atomic_set(&dev->reada_in_flight, 0);
 	atomic_set(&dev->dev_stats_ccnt, 0);
+	btrfs_device_data_ordered_init(dev);
 	INIT_RADIX_TREE(&dev->reada_zones, GFP_NOFS & ~__GFP_DIRECT_RECLAIM);
 	INIT_RADIX_TREE(&dev->reada_extents, GFP_NOFS & ~__GFP_DIRECT_RECLAIM);
 
@@ -1257,6 +1258,15 @@ int find_free_dev_extent_start(struct btrfs_transaction *transaction,
 	int ret;
 	int slot;
 	struct extent_buffer *l;
+	u64 min_search_start;
+
+	/*
+	 * We don't want to overwrite the superblock on the drive nor any area
+	 * used by the boot loader (grub for example), so we make sure to start
+	 * at an offset of at least 1MB.
+	 */
+	min_search_start = max(root->fs_info->alloc_start, 1024ull * 1024);
+	search_start = max(search_start, min_search_start);
 
 	path = btrfs_alloc_path();
 	if (!path)
@@ -1397,18 +1407,9 @@ int find_free_dev_extent(struct btrfs_trans_handle *trans,
 			 struct btrfs_device *device, u64 num_bytes,
 			 u64 *start, u64 *len)
 {
-	struct btrfs_root *root = device->dev_root;
-	u64 search_start;
-
 	/* FIXME use last free of some kind */
-
-	/*
-	 * we don't want to overwrite the superblock on the drive,
-	 * so we make sure to start at an offset of at least 1MB
-	 */
-	search_start = max(root->fs_info->alloc_start, 1024ull * 1024);
 	return find_free_dev_extent_start(trans->transaction, device,
-					  num_bytes, search_start, start, len);
+					  num_bytes, 0, start, len);
 }
 
 static int btrfs_free_dev_extent(struct btrfs_trans_handle *trans,
@@ -1973,8 +1974,7 @@ void btrfs_rm_dev_replace_remove_srcdev(struct btrfs_fs_info *fs_info,
 	if (srcdev->writeable) {
 		fs_devices->rw_devices--;
 		/* zero out the old super if it is writable */
-		btrfs_scratch_superblocks(srcdev->bdev,
-					rcu_str_deref(srcdev->name));
+		btrfs_scratch_superblocks(srcdev->bdev, srcdev->name->str);
 	}
 
 	if (srcdev->bdev)
@@ -2024,8 +2024,7 @@ void btrfs_destroy_dev_replace_tgtdev(struct btrfs_fs_info *fs_info,
 	btrfs_sysfs_rm_device_link(fs_info->fs_devices, tgtdev);
 
 	if (tgtdev->bdev) {
-		btrfs_scratch_superblocks(tgtdev->bdev,
-					rcu_str_deref(tgtdev->name));
+		btrfs_scratch_superblocks(tgtdev->bdev, tgtdev->name->str);
 		fs_info->fs_devices->open_devices--;
 	}
 	fs_info->fs_devices->num_devices--;
@@ -2853,7 +2852,8 @@ static int btrfs_relocate_chunk(struct btrfs_root *root, u64 chunk_offset)
 	if (ret)
 		return ret;
 
-	trans = btrfs_start_transaction(root, 0);
+	trans = btrfs_start_trans_remove_block_group(root->fs_info,
+						     chunk_offset);
 	if (IS_ERR(trans)) {
 		ret = PTR_ERR(trans);
 		btrfs_std_error(root->fs_info, ret, NULL);
@@ -3123,7 +3123,7 @@ static int chunk_profiles_filter(u64 chunk_type,
 	return 1;
 }
 
-static int chunk_usage_filter(struct btrfs_fs_info *fs_info, u64 chunk_offset,
+static int chunk_usage_range_filter(struct btrfs_fs_info *fs_info, u64 chunk_offset,
 			      struct btrfs_balance_args *bargs)
 {
 	struct btrfs_block_group_cache *cache;
@@ -3156,7 +3156,7 @@ static int chunk_usage_filter(struct btrfs_fs_info *fs_info, u64 chunk_offset,
 	return ret;
 }
 
-static int chunk_usage_range_filter(struct btrfs_fs_info *fs_info,
+static int chunk_usage_filter(struct btrfs_fs_info *fs_info,
 		u64 chunk_offset, struct btrfs_balance_args *bargs)
 {
 	struct btrfs_block_group_cache *cache;
@@ -3549,12 +3549,11 @@ again:
 
 			ret = btrfs_force_chunk_alloc(trans, chunk_root,
 						      BTRFS_BLOCK_GROUP_DATA);
+			btrfs_end_transaction(trans, chunk_root);
 			if (ret < 0) {
 				mutex_unlock(&fs_info->delete_unused_bgs_mutex);
 				goto error;
 			}
-
-			btrfs_end_transaction(trans, chunk_root);
 			chunk_reserved = 1;
 		}
 
@@ -6514,6 +6513,14 @@ int btrfs_read_sys_array(struct btrfs_root *root)
 				goto out_short_read;
 
 			num_stripes = btrfs_chunk_num_stripes(sb, chunk);
+			if (!num_stripes) {
+				printk(KERN_ERR
+	    "BTRFS: invalid number of stripes %u in sys_array at offset %u\n",
+					num_stripes, cur_offset);
+				ret = -EIO;
+				break;
+			}
+
 			len = btrfs_chunk_item_size(num_stripes);
 			if (cur_offset + len > array_size)
 				goto out_short_read;

@@ -1947,13 +1947,38 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 
 #ifdef CONFIG_SMP
 	/*
+	 * Ensure we load p->on_cpu _after_ p->on_rq, otherwise it would be
+	 * possible to, falsely, observe p->on_cpu == 0.
+	 *
+	 * One must be running (->on_cpu == 1) in order to remove oneself
+	 * from the runqueue.
+	 *
+	 *  [S] ->on_cpu = 1;	[L] ->on_rq
+	 *      UNLOCK rq->lock
+	 *			RMB
+	 *      LOCK   rq->lock
+	 *  [S] ->on_rq = 0;    [L] ->on_cpu
+	 *
+	 * Pairs with the full barrier implied in the UNLOCK+LOCK on rq->lock
+	 * from the consecutive calls to schedule(); the first switching to our
+	 * task, the second putting it to sleep.
+	 */
+	smp_rmb();
+
+	/*
 	 * If the owning (remote) cpu is still in the middle of schedule() with
 	 * this task as prev, wait until its done referencing the task.
 	 */
 	while (p->on_cpu)
 		cpu_relax();
 	/*
-	 * Pairs with the smp_wmb() in finish_lock_switch().
+	 * Combined with the control dependency above, we have an effective
+	 * smp_load_acquire() without the need for full barriers.
+	 *
+	 * Pairs with the smp_store_release() in finish_lock_switch().
+	 *
+	 * This ensures that tasks getting woken will be fully ordered against
+	 * their previous state and preserve Program Order.
 	 */
 	smp_rmb();
 
@@ -2039,7 +2064,6 @@ out:
  */
 int wake_up_process(struct task_struct *p)
 {
-	WARN_ON(task_is_stopped_or_traced(p));
 	return try_to_wake_up(p, TASK_NORMAL, 0);
 }
 EXPORT_SYMBOL(wake_up_process);
@@ -5501,6 +5525,7 @@ migration_call(struct notifier_block *nfb, unsigned long action, void *hcpu)
 
 	case CPU_UP_PREPARE:
 		rq->calc_load_update = calc_load_update;
+		account_reset_rq(rq);
 		break;
 
 	case CPU_ONLINE:
@@ -5847,13 +5872,13 @@ static int init_rootdomain(struct root_domain *rd)
 {
 	memset(rd, 0, sizeof(*rd));
 
-	if (!alloc_cpumask_var(&rd->span, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&rd->span, GFP_KERNEL))
 		goto out;
-	if (!alloc_cpumask_var(&rd->online, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&rd->online, GFP_KERNEL))
 		goto free_span;
-	if (!alloc_cpumask_var(&rd->dlo_mask, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&rd->dlo_mask, GFP_KERNEL))
 		goto free_online;
-	if (!alloc_cpumask_var(&rd->rto_mask, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&rd->rto_mask, GFP_KERNEL))
 		goto free_dlo_mask;
 
 	init_dl_bw(&rd->dl_bw);
@@ -6714,7 +6739,7 @@ static void sched_init_numa(void)
 
 			sched_domains_numa_masks[i][j] = mask;
 
-			for (k = 0; k < nr_node_ids; k++) {
+			for_each_node(k) {
 				if (node_distance(j, k) > sched_domains_numa_distance[i])
 					continue;
 
@@ -7668,7 +7693,7 @@ void set_curr_task(int cpu, struct task_struct *p)
 /* task_group_lock serializes the addition/removal of task groups */
 static DEFINE_SPINLOCK(task_group_lock);
 
-static void free_sched_group(struct task_group *tg)
+static void sched_free_group(struct task_group *tg)
 {
 	free_fair_sched_group(tg);
 	free_rt_sched_group(tg);
@@ -7694,7 +7719,7 @@ struct task_group *sched_create_group(struct task_group *parent)
 	return tg;
 
 err:
-	free_sched_group(tg);
+	sched_free_group(tg);
 	return ERR_PTR(-ENOMEM);
 }
 
@@ -7714,17 +7739,16 @@ void sched_online_group(struct task_group *tg, struct task_group *parent)
 }
 
 /* rcu callback to free various structures associated with a task group */
-static void free_sched_group_rcu(struct rcu_head *rhp)
+static void sched_free_group_rcu(struct rcu_head *rhp)
 {
 	/* now it should be safe to free those cfs_rqs */
-	free_sched_group(container_of(rhp, struct task_group, rcu));
+	sched_free_group(container_of(rhp, struct task_group, rcu));
 }
 
-/* Destroy runqueue etc associated with a task group */
 void sched_destroy_group(struct task_group *tg)
 {
 	/* wait for possible concurrent references to cfs_rqs complete */
-	call_rcu(&tg->rcu, free_sched_group_rcu);
+	call_rcu(&tg->rcu, sched_free_group_rcu);
 }
 
 void sched_offline_group(struct task_group *tg)
@@ -8185,31 +8209,26 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 	if (IS_ERR(tg))
 		return ERR_PTR(-ENOMEM);
 
+	sched_online_group(tg, parent);
+
 	return &tg->css;
 }
 
-static int cpu_cgroup_css_online(struct cgroup_subsys_state *css)
+static void cpu_cgroup_css_released(struct cgroup_subsys_state *css)
 {
 	struct task_group *tg = css_tg(css);
-	struct task_group *parent = css_tg(css->parent);
 
-	if (parent)
-		sched_online_group(tg, parent);
-	return 0;
+	sched_offline_group(tg);
 }
 
 static void cpu_cgroup_css_free(struct cgroup_subsys_state *css)
 {
 	struct task_group *tg = css_tg(css);
 
-	sched_destroy_group(tg);
-}
-
-static void cpu_cgroup_css_offline(struct cgroup_subsys_state *css)
-{
-	struct task_group *tg = css_tg(css);
-
-	sched_offline_group(tg);
+	/*
+	 * Relies on the RCU grace period between css_released() and this.
+	 */
+	sched_free_group(tg);
 }
 
 static void cpu_cgroup_fork(struct task_struct *task, void *private)
@@ -8217,12 +8236,12 @@ static void cpu_cgroup_fork(struct task_struct *task, void *private)
 	sched_move_task(task);
 }
 
-static int cpu_cgroup_can_attach(struct cgroup_subsys_state *css,
-				 struct cgroup_taskset *tset)
+static int cpu_cgroup_can_attach(struct cgroup_taskset *tset)
 {
 	struct task_struct *task;
+	struct cgroup_subsys_state *css;
 
-	cgroup_taskset_for_each(task, tset) {
+	cgroup_taskset_for_each(task, css, tset) {
 #ifdef CONFIG_RT_GROUP_SCHED
 		if (!sched_rt_can_attach(css_tg(css), task))
 			return -EINVAL;
@@ -8235,12 +8254,12 @@ static int cpu_cgroup_can_attach(struct cgroup_subsys_state *css,
 	return 0;
 }
 
-static void cpu_cgroup_attach(struct cgroup_subsys_state *css,
-			      struct cgroup_taskset *tset)
+static void cpu_cgroup_attach(struct cgroup_taskset *tset)
 {
 	struct task_struct *task;
+	struct cgroup_subsys_state *css;
 
-	cgroup_taskset_for_each(task, tset)
+	cgroup_taskset_for_each(task, css, tset)
 		sched_move_task(task);
 }
 
@@ -8569,9 +8588,8 @@ static struct cftype cpu_files[] = {
 
 struct cgroup_subsys cpu_cgrp_subsys = {
 	.css_alloc	= cpu_cgroup_css_alloc,
+	.css_released	= cpu_cgroup_css_released,
 	.css_free	= cpu_cgroup_css_free,
-	.css_online	= cpu_cgroup_css_online,
-	.css_offline	= cpu_cgroup_css_offline,
 	.fork		= cpu_cgroup_fork,
 	.can_attach	= cpu_cgroup_can_attach,
 	.attach		= cpu_cgroup_attach,

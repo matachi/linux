@@ -293,6 +293,8 @@ static blk_qc_t md_make_request(struct request_queue *q, struct bio *bio)
 	 * go away inside make_request
 	 */
 	sectors = bio_sectors(bio);
+	/* bio could be mergeable after passing to underlayer */
+	bio->bi_rw &= ~REQ_NOMERGE;
 	mddev->pers->make_request(mddev, bio);
 
 	cpu = part_stat_lock();
@@ -314,8 +316,8 @@ static blk_qc_t md_make_request(struct request_queue *q, struct bio *bio)
  */
 void mddev_suspend(struct mddev *mddev)
 {
-	BUG_ON(mddev->suspended);
-	mddev->suspended = 1;
+	if (mddev->suspended++)
+		return;
 	synchronize_rcu();
 	wait_event(mddev->sb_wait, atomic_read(&mddev->active_io) == 0);
 	mddev->pers->quiesce(mddev, 1);
@@ -326,7 +328,8 @@ EXPORT_SYMBOL_GPL(mddev_suspend);
 
 void mddev_resume(struct mddev *mddev)
 {
-	mddev->suspended = 0;
+	if (--mddev->suspended)
+		return;
 	wake_up(&mddev->sb_wait);
 	mddev->pers->quiesce(mddev, 0);
 
@@ -1652,7 +1655,7 @@ static int super_1_validate(struct mddev *mddev, struct md_rdev *rdev)
 			rdev->journal_tail = le64_to_cpu(sb->journal_tail);
 			if (mddev->recovery_cp == MaxSector)
 				set_bit(MD_JOURNAL_CLEAN, &mddev->flags);
-			rdev->raid_disk = mddev->raid_disks;
+			rdev->raid_disk = 0;
 			break;
 		default:
 			rdev->saved_raid_disk = role;
@@ -2016,28 +2019,32 @@ int md_integrity_register(struct mddev *mddev)
 }
 EXPORT_SYMBOL(md_integrity_register);
 
-/* Disable data integrity if non-capable/non-matching disk is being added */
-void md_integrity_add_rdev(struct md_rdev *rdev, struct mddev *mddev)
+/*
+ * Attempt to add an rdev, but only if it is consistent with the current
+ * integrity profile
+ */
+int md_integrity_add_rdev(struct md_rdev *rdev, struct mddev *mddev)
 {
 	struct blk_integrity *bi_rdev;
 	struct blk_integrity *bi_mddev;
+	char name[BDEVNAME_SIZE];
 
 	if (!mddev->gendisk)
-		return;
+		return 0;
 
 	bi_rdev = bdev_get_integrity(rdev->bdev);
 	bi_mddev = blk_get_integrity(mddev->gendisk);
 
 	if (!bi_mddev) /* nothing to do */
-		return;
-	if (rdev->raid_disk < 0) /* skip spares */
-		return;
-	if (bi_rdev && blk_integrity_compare(mddev->gendisk,
-					     rdev->bdev->bd_disk) >= 0)
-		return;
-	WARN_ON_ONCE(!mddev->suspended);
-	printk(KERN_NOTICE "disabling data integrity on %s\n", mdname(mddev));
-	blk_integrity_unregister(mddev->gendisk);
+		return 0;
+
+	if (blk_integrity_compare(mddev->gendisk, rdev->bdev->bd_disk) != 0) {
+		printk(KERN_NOTICE "%s: incompatible integrity profile for %s\n",
+				mdname(mddev), bdevname(rdev->bdev, name));
+		return -ENXIO;
+	}
+
+	return 0;
 }
 EXPORT_SYMBOL(md_integrity_add_rdev);
 
@@ -2773,6 +2780,7 @@ slot_store(struct md_rdev *rdev, const char *buf, size_t len)
 		/* Activating a spare .. or possibly reactivating
 		 * if we ever get bitmaps working here.
 		 */
+		int err;
 
 		if (rdev->raid_disk != -1)
 			return -EBUSY;
@@ -2794,9 +2802,15 @@ slot_store(struct md_rdev *rdev, const char *buf, size_t len)
 			rdev->saved_raid_disk = -1;
 		clear_bit(In_sync, &rdev->flags);
 		clear_bit(Bitmap_sync, &rdev->flags);
-		remove_and_add_spares(rdev->mddev, rdev);
-		if (rdev->raid_disk == -1)
-			return -EBUSY;
+		err = rdev->mddev->pers->
+			hot_add_disk(rdev->mddev, rdev);
+		if (err) {
+			rdev->raid_disk = -1;
+			return err;
+		} else
+			sysfs_notify_dirent_safe(rdev->sysfs_state);
+		if (sysfs_link_rdev(rdev->mddev, rdev))
+			/* failure here is OK */;
 		/* don't wakeup anyone, leave that to userspace. */
 	} else {
 		if (slot >= rdev->mddev->raid_disks &&
@@ -4318,8 +4332,7 @@ action_store(struct mddev *mddev, const char *page, size_t len)
 			}
 			mddev_unlock(mddev);
 		}
-	} else if (test_bit(MD_RECOVERY_RUNNING, &mddev->recovery) ||
-		   test_bit(MD_RECOVERY_NEEDED, &mddev->recovery))
+	} else if (test_bit(MD_RECOVERY_RUNNING, &mddev->recovery))
 		return -EBUSY;
 	else if (cmd_match(page, "resync"))
 		clear_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
@@ -4332,8 +4345,12 @@ action_store(struct mddev *mddev, const char *page, size_t len)
 			return -EINVAL;
 		err = mddev_lock(mddev);
 		if (!err) {
-			clear_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
-			err = mddev->pers->start_reshape(mddev);
+			if (test_bit(MD_RECOVERY_RUNNING, &mddev->recovery))
+				err =  -EBUSY;
+			else {
+				clear_bit(MD_RECOVERY_FROZEN, &mddev->recovery);
+				err = mddev->pers->start_reshape(mddev);
+			}
 			mddev_unlock(mddev);
 		}
 		if (err)

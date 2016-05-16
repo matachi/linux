@@ -438,7 +438,8 @@ static int hdmi_eld_ctl_get(struct snd_kcontrol *kcontrol,
 	eld = &per_pin->sink_eld;
 
 	mutex_lock(&per_pin->lock);
-	if (eld->eld_size > ARRAY_SIZE(ucontrol->value.bytes.data)) {
+	if (eld->eld_size > ARRAY_SIZE(ucontrol->value.bytes.data) ||
+	    eld->eld_size > ELD_MAX_SIZE) {
 		mutex_unlock(&per_pin->lock);
 		snd_BUG();
 		return -EINVAL;
@@ -1183,7 +1184,7 @@ static void check_presence_and_report(struct hda_codec *codec, hda_nid_t nid)
 static void jack_callback(struct hda_codec *codec,
 			  struct hda_jack_callback *jack)
 {
-	check_presence_and_report(codec, jack->tbl->nid);
+	check_presence_and_report(codec, jack->nid);
 }
 
 static void hdmi_intrinsic_event(struct hda_codec *codec, unsigned int res)
@@ -2352,6 +2353,16 @@ static void intel_pin_eld_notify(void *audio_ptr, int port)
 	struct hda_codec *codec = audio_ptr;
 	int pin_nid = port + 0x04;
 
+	/* we assume only from port-B to port-D */
+	if (port < 1 || port > 3)
+		return;
+
+	/* skip notification during system suspend (but not in runtime PM);
+	 * the state will be updated at resume
+	 */
+	if (snd_power_get_state(codec->card) != SNDRV_CTL_POWER_D0)
+		return;
+
 	check_presence_and_report(codec, pin_nid);
 }
 
@@ -2378,7 +2389,8 @@ static int patch_generic_hdmi(struct hda_codec *codec)
 	 * can cover the codec power request, and so need not set this flag.
 	 * For previous platforms, there is no such power well feature.
 	 */
-	if (is_valleyview_plus(codec) || is_skylake(codec))
+	if (is_valleyview_plus(codec) || is_skylake(codec) ||
+			is_broxton(codec))
 		codec->core.link_power_control = 1;
 
 	if (is_haswell_plus(codec) || is_valleyview_plus(codec)) {

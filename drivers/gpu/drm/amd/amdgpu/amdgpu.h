@@ -496,6 +496,7 @@ struct amdgpu_bo_va_mapping {
 
 /* bo virtual addresses in a specific vm */
 struct amdgpu_bo_va {
+	struct mutex		        mutex;
 	/* protected by bo being reserved */
 	struct list_head		bo_list;
 	struct fence		        *last_pt_update;
@@ -538,6 +539,7 @@ struct amdgpu_bo {
 	/* Constant after initialization */
 	struct amdgpu_device		*adev;
 	struct drm_gem_object		gem_base;
+	struct amdgpu_bo		*parent;
 
 	struct ttm_bo_kmap_obj		dma_buf_vmap;
 	pid_t				pid;
@@ -601,8 +603,6 @@ struct amdgpu_sa_manager {
 	uint32_t		domain;
 	uint32_t		align;
 };
-
-struct amdgpu_sa_bo;
 
 /* sub-allocation buffer */
 struct amdgpu_sa_bo {
@@ -928,8 +928,6 @@ struct amdgpu_vm_id {
 };
 
 struct amdgpu_vm {
-	struct mutex		mutex;
-
 	struct rb_root		va;
 
 	/* protecting invalidated */
@@ -956,6 +954,8 @@ struct amdgpu_vm {
 	struct amdgpu_vm_id	ids[AMDGPU_MAX_RINGS];
 	/* for interval tree */
 	spinlock_t		it_lock;
+	/* protecting freed */
+	spinlock_t		freed_lock;
 };
 
 struct amdgpu_vm_manager {
@@ -1262,7 +1262,8 @@ struct amdgpu_cs_parser {
 	struct ww_acquire_ctx	ticket;
 
 	/* user fence */
-	struct amdgpu_user_fence uf;
+	struct amdgpu_user_fence	uf;
+	struct amdgpu_bo_list_entry	uf_entry;
 };
 
 struct amdgpu_job {
@@ -1672,6 +1673,7 @@ struct amdgpu_uvd {
 	struct amdgpu_bo	*vcpu_bo;
 	void			*cpu_addr;
 	uint64_t		gpu_addr;
+	unsigned		fw_version;
 	atomic_t		handles[AMDGPU_MAX_UVD_HANDLES];
 	struct drm_file		*filp[AMDGPU_MAX_UVD_HANDLES];
 	struct delayed_work	idle_work;
@@ -2311,6 +2313,8 @@ bool amdgpu_ttm_bo_is_amdgpu_bo(struct ttm_buffer_object *bo);
 int amdgpu_ttm_tt_set_userptr(struct ttm_tt *ttm, uint64_t addr,
 				     uint32_t flags);
 bool amdgpu_ttm_tt_has_userptr(struct ttm_tt *ttm);
+bool amdgpu_ttm_tt_affect_userptr(struct ttm_tt *ttm, unsigned long start,
+				  unsigned long end);
 bool amdgpu_ttm_tt_is_readonly(struct ttm_tt *ttm);
 uint32_t amdgpu_ttm_tt_pte_flags(struct amdgpu_device *adev, struct ttm_tt *ttm,
 				 struct ttm_mem_reg *mem);

@@ -1291,7 +1291,8 @@ out:
  * on error we return an unlocked page and the error value
  * on success we return a locked page and 0
  */
-static int prepare_uptodate_page(struct page *page, u64 pos,
+static int prepare_uptodate_page(struct inode *inode,
+				 struct page *page, u64 pos,
 				 bool force_uptodate)
 {
 	int ret = 0;
@@ -1305,6 +1306,10 @@ static int prepare_uptodate_page(struct page *page, u64 pos,
 		if (!PageUptodate(page)) {
 			unlock_page(page);
 			return -EIO;
+		}
+		if (page->mapping != inode->i_mapping) {
+			unlock_page(page);
+			return -EAGAIN;
 		}
 	}
 	return 0;
@@ -1324,6 +1329,7 @@ static noinline int prepare_pages(struct inode *inode, struct page **pages,
 	int faili;
 
 	for (i = 0; i < num_pages; i++) {
+again:
 		pages[i] = find_or_create_page(inode->i_mapping, index + i,
 					       mask | __GFP_WRITE);
 		if (!pages[i]) {
@@ -1333,13 +1339,17 @@ static noinline int prepare_pages(struct inode *inode, struct page **pages,
 		}
 
 		if (i == 0)
-			err = prepare_uptodate_page(pages[i], pos,
+			err = prepare_uptodate_page(inode, pages[i], pos,
 						    force_uptodate);
-		if (i == num_pages - 1)
-			err = prepare_uptodate_page(pages[i],
+		if (!err && i == num_pages - 1)
+			err = prepare_uptodate_page(inode, pages[i],
 						    pos + write_bytes, false);
 		if (err) {
 			page_cache_release(pages[i]);
+			if (err == -EAGAIN) {
+				err = 0;
+				goto again;
+			}
 			faili = i - 1;
 			goto fail;
 		}
@@ -1875,15 +1885,20 @@ static int start_ordered_ops(struct inode *inode, loff_t start, loff_t end)
  */
 int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
-	struct dentry *dentry = file->f_path.dentry;
+	struct dentry *dentry = file_dentry(file);
 	struct inode *inode = d_inode(dentry);
 	struct btrfs_root *root = BTRFS_I(inode)->root;
 	struct btrfs_trans_handle *trans;
 	struct btrfs_log_ctx ctx;
 	int ret = 0;
 	bool full_sync = 0;
-	const u64 len = end - start + 1;
+	u64 len;
 
+	/*
+	 * The range length can be represented by u64, we have to do the typecasts
+	 * to avoid signed overflow if it's [0, LLONG_MAX] eg. from fsync()
+	 */
+	len = (u64)end - (u64)start + 1;
 	trace_btrfs_sync_file(file, datasync);
 
 	/*
@@ -2071,8 +2086,7 @@ int btrfs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 			}
 		}
 		if (!full_sync) {
-			ret = btrfs_wait_ordered_range(inode, start,
-						       end - start + 1);
+			ret = btrfs_wait_ordered_range(inode, start, len);
 			if (ret) {
 				btrfs_end_transaction(trans, root);
 				goto out;

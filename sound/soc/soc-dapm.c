@@ -2188,6 +2188,13 @@ static ssize_t dapm_widget_show_component(struct snd_soc_component *cmpnt,
 	int count = 0;
 	char *state = "not set";
 
+	/* card won't be set for the dummy component, as a spot fix
+	 * we're checking for that case specifically here but in future
+	 * we will ensure that the dummy component looks like others.
+	 */
+	if (!cmpnt->card)
+		return 0;
+
 	list_for_each_entry(w, &cmpnt->card->widgets, list) {
 		if (w->dapm != dapm)
 			continue;
@@ -2293,6 +2300,12 @@ void snd_soc_dapm_free_widget(struct snd_soc_dapm_widget *w)
 	kfree(w);
 }
 
+void snd_soc_dapm_reset_cache(struct snd_soc_dapm_context *dapm)
+{
+	dapm->path_sink_cache.widget = NULL;
+	dapm->path_source_cache.widget = NULL;
+}
+
 /* free all dapm widgets and resources */
 static void dapm_free_widgets(struct snd_soc_dapm_context *dapm)
 {
@@ -2303,6 +2316,7 @@ static void dapm_free_widgets(struct snd_soc_dapm_context *dapm)
 			continue;
 		snd_soc_dapm_free_widget(w);
 	}
+	snd_soc_dapm_reset_cache(dapm);
 }
 
 static struct snd_soc_dapm_widget *dapm_find_widget(
@@ -3561,7 +3575,7 @@ static int snd_soc_dapm_dai_link_get(struct snd_kcontrol *kcontrol,
 {
 	struct snd_soc_dapm_widget *w = snd_kcontrol_chip(kcontrol);
 
-	ucontrol->value.integer.value[0] = w->params_select;
+	ucontrol->value.enumerated.item[0] = w->params_select;
 
 	return 0;
 }
@@ -3575,13 +3589,13 @@ static int snd_soc_dapm_dai_link_put(struct snd_kcontrol *kcontrol,
 	if (w->power)
 		return -EBUSY;
 
-	if (ucontrol->value.integer.value[0] == w->params_select)
+	if (ucontrol->value.enumerated.item[0] == w->params_select)
 		return 0;
 
-	if (ucontrol->value.integer.value[0] >= w->num_params)
+	if (ucontrol->value.enumerated.item[0] >= w->num_params)
 		return -EINVAL;
 
-	w->params_select = ucontrol->value.integer.value[0];
+	w->params_select = ucontrol->value.enumerated.item[0];
 
 	return 0;
 }

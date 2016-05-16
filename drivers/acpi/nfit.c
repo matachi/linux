@@ -233,11 +233,12 @@ static bool add_spa(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_table_prev *prev,
 		struct acpi_nfit_system_address *spa)
 {
+	size_t length = min_t(size_t, sizeof(*spa), spa->header.length);
 	struct device *dev = acpi_desc->dev;
 	struct nfit_spa *nfit_spa;
 
 	list_for_each_entry(nfit_spa, &prev->spas, list) {
-		if (memcmp(nfit_spa->spa, spa, sizeof(*spa)) == 0) {
+		if (memcmp(nfit_spa->spa, spa, length) == 0) {
 			list_move_tail(&nfit_spa->list, &acpi_desc->spas);
 			return true;
 		}
@@ -259,11 +260,12 @@ static bool add_memdev(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_table_prev *prev,
 		struct acpi_nfit_memory_map *memdev)
 {
+	size_t length = min_t(size_t, sizeof(*memdev), memdev->header.length);
 	struct device *dev = acpi_desc->dev;
 	struct nfit_memdev *nfit_memdev;
 
 	list_for_each_entry(nfit_memdev, &prev->memdevs, list)
-		if (memcmp(nfit_memdev->memdev, memdev, sizeof(*memdev)) == 0) {
+		if (memcmp(nfit_memdev->memdev, memdev, length) == 0) {
 			list_move_tail(&nfit_memdev->list, &acpi_desc->memdevs);
 			return true;
 		}
@@ -284,11 +286,12 @@ static bool add_dcr(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_table_prev *prev,
 		struct acpi_nfit_control_region *dcr)
 {
+	size_t length = min_t(size_t, sizeof(*dcr), dcr->header.length);
 	struct device *dev = acpi_desc->dev;
 	struct nfit_dcr *nfit_dcr;
 
 	list_for_each_entry(nfit_dcr, &prev->dcrs, list)
-		if (memcmp(nfit_dcr->dcr, dcr, sizeof(*dcr)) == 0) {
+		if (memcmp(nfit_dcr->dcr, dcr, length) == 0) {
 			list_move_tail(&nfit_dcr->list, &acpi_desc->dcrs);
 			return true;
 		}
@@ -308,11 +311,12 @@ static bool add_bdw(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_table_prev *prev,
 		struct acpi_nfit_data_region *bdw)
 {
+	size_t length = min_t(size_t, sizeof(*bdw), bdw->header.length);
 	struct device *dev = acpi_desc->dev;
 	struct nfit_bdw *nfit_bdw;
 
 	list_for_each_entry(nfit_bdw, &prev->bdws, list)
-		if (memcmp(nfit_bdw->bdw, bdw, sizeof(*bdw)) == 0) {
+		if (memcmp(nfit_bdw->bdw, bdw, length) == 0) {
 			list_move_tail(&nfit_bdw->list, &acpi_desc->bdws);
 			return true;
 		}
@@ -332,11 +336,12 @@ static bool add_idt(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_table_prev *prev,
 		struct acpi_nfit_interleave *idt)
 {
+	size_t length = min_t(size_t, sizeof(*idt), idt->header.length);
 	struct device *dev = acpi_desc->dev;
 	struct nfit_idt *nfit_idt;
 
 	list_for_each_entry(nfit_idt, &prev->idts, list)
-		if (memcmp(nfit_idt->idt, idt, sizeof(*idt)) == 0) {
+		if (memcmp(nfit_idt->idt, idt, length) == 0) {
 			list_move_tail(&nfit_idt->list, &acpi_desc->idts);
 			return true;
 		}
@@ -356,11 +361,12 @@ static bool add_flush(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_table_prev *prev,
 		struct acpi_nfit_flush_address *flush)
 {
+	size_t length = min_t(size_t, sizeof(*flush), flush->header.length);
 	struct device *dev = acpi_desc->dev;
 	struct nfit_flush *nfit_flush;
 
 	list_for_each_entry(nfit_flush, &prev->flushes, list)
-		if (memcmp(nfit_flush->flush, flush, sizeof(*flush)) == 0) {
+		if (memcmp(nfit_flush->flush, flush, length) == 0) {
 			list_move_tail(&nfit_flush->list, &acpi_desc->flushes);
 			return true;
 		}
@@ -462,36 +468,15 @@ static void nfit_mem_find_spa_bdw(struct acpi_nfit_desc *acpi_desc,
 	nfit_mem->bdw = NULL;
 }
 
-static int nfit_mem_add(struct acpi_nfit_desc *acpi_desc,
+static void nfit_mem_init_bdw(struct acpi_nfit_desc *acpi_desc,
 		struct nfit_mem *nfit_mem, struct acpi_nfit_system_address *spa)
 {
 	u16 dcr = __to_nfit_memdev(nfit_mem)->region_index;
 	struct nfit_memdev *nfit_memdev;
 	struct nfit_flush *nfit_flush;
-	struct nfit_dcr *nfit_dcr;
 	struct nfit_bdw *nfit_bdw;
 	struct nfit_idt *nfit_idt;
 	u16 idt_idx, range_index;
-
-	list_for_each_entry(nfit_dcr, &acpi_desc->dcrs, list) {
-		if (nfit_dcr->dcr->region_index != dcr)
-			continue;
-		nfit_mem->dcr = nfit_dcr->dcr;
-		break;
-	}
-
-	if (!nfit_mem->dcr) {
-		dev_dbg(acpi_desc->dev, "SPA %d missing:%s%s\n",
-				spa->range_index, __to_nfit_memdev(nfit_mem)
-				? "" : " MEMDEV", nfit_mem->dcr ? "" : " DCR");
-		return -ENODEV;
-	}
-
-	/*
-	 * We've found enough to create an nvdimm, optionally
-	 * find an associated BDW
-	 */
-	list_add(&nfit_mem->list, &acpi_desc->dimms);
 
 	list_for_each_entry(nfit_bdw, &acpi_desc->bdws, list) {
 		if (nfit_bdw->bdw->region_index != dcr)
@@ -501,12 +486,12 @@ static int nfit_mem_add(struct acpi_nfit_desc *acpi_desc,
 	}
 
 	if (!nfit_mem->bdw)
-		return 0;
+		return;
 
 	nfit_mem_find_spa_bdw(acpi_desc, nfit_mem);
 
 	if (!nfit_mem->spa_bdw)
-		return 0;
+		return;
 
 	range_index = nfit_mem->spa_bdw->range_index;
 	list_for_each_entry(nfit_memdev, &acpi_desc->memdevs, list) {
@@ -531,8 +516,6 @@ static int nfit_mem_add(struct acpi_nfit_desc *acpi_desc,
 		}
 		break;
 	}
-
-	return 0;
 }
 
 static int nfit_mem_dcr_init(struct acpi_nfit_desc *acpi_desc,
@@ -541,7 +524,6 @@ static int nfit_mem_dcr_init(struct acpi_nfit_desc *acpi_desc,
 	struct nfit_mem *nfit_mem, *found;
 	struct nfit_memdev *nfit_memdev;
 	int type = nfit_spa_type(spa);
-	u16 dcr;
 
 	switch (type) {
 	case NFIT_SPA_DCR:
@@ -552,14 +534,18 @@ static int nfit_mem_dcr_init(struct acpi_nfit_desc *acpi_desc,
 	}
 
 	list_for_each_entry(nfit_memdev, &acpi_desc->memdevs, list) {
-		int rc;
+		struct nfit_dcr *nfit_dcr;
+		u32 device_handle;
+		u16 dcr;
 
 		if (nfit_memdev->memdev->range_index != spa->range_index)
 			continue;
 		found = NULL;
 		dcr = nfit_memdev->memdev->region_index;
+		device_handle = nfit_memdev->memdev->device_handle;
 		list_for_each_entry(nfit_mem, &acpi_desc->dimms, list)
-			if (__to_nfit_memdev(nfit_mem)->region_index == dcr) {
+			if (__to_nfit_memdev(nfit_mem)->device_handle
+					== device_handle) {
 				found = nfit_mem;
 				break;
 			}
@@ -572,6 +558,31 @@ static int nfit_mem_dcr_init(struct acpi_nfit_desc *acpi_desc,
 			if (!nfit_mem)
 				return -ENOMEM;
 			INIT_LIST_HEAD(&nfit_mem->list);
+			list_add(&nfit_mem->list, &acpi_desc->dimms);
+		}
+
+		list_for_each_entry(nfit_dcr, &acpi_desc->dcrs, list) {
+			if (nfit_dcr->dcr->region_index != dcr)
+				continue;
+			/*
+			 * Record the control region for the dimm.  For
+			 * the ACPI 6.1 case, where there are separate
+			 * control regions for the pmem vs blk
+			 * interfaces, be sure to record the extended
+			 * blk details.
+			 */
+			if (!nfit_mem->dcr)
+				nfit_mem->dcr = nfit_dcr->dcr;
+			else if (nfit_mem->dcr->windows == 0
+					&& nfit_dcr->dcr->windows)
+				nfit_mem->dcr = nfit_dcr->dcr;
+			break;
+		}
+
+		if (dcr && !nfit_mem->dcr) {
+			dev_err(acpi_desc->dev, "SPA %d missing DCR %d\n",
+					spa->range_index, dcr);
+			return -ENODEV;
 		}
 
 		if (type == NFIT_SPA_DCR) {
@@ -588,6 +599,7 @@ static int nfit_mem_dcr_init(struct acpi_nfit_desc *acpi_desc,
 				nfit_mem->idt_dcr = nfit_idt->idt;
 				break;
 			}
+			nfit_mem_init_bdw(acpi_desc, nfit_mem, spa);
 		} else {
 			/*
 			 * A single dimm may belong to multiple SPA-PM
@@ -596,13 +608,6 @@ static int nfit_mem_dcr_init(struct acpi_nfit_desc *acpi_desc,
 			 */
 			nfit_mem->memdev_pmem = nfit_memdev->memdev;
 		}
-
-		if (found)
-			continue;
-
-		rc = nfit_mem_add(acpi_desc, nfit_mem, spa);
-		if (rc)
-			return rc;
 	}
 
 	return 0;
@@ -655,7 +660,7 @@ static ssize_t revision_show(struct device *dev,
 	struct nvdimm_bus_descriptor *nd_desc = to_nd_desc(nvdimm_bus);
 	struct acpi_nfit_desc *acpi_desc = to_acpi_desc(nd_desc);
 
-	return sprintf(buf, "%d\n", acpi_desc->nfit->header.revision);
+	return sprintf(buf, "%d\n", acpi_desc->acpi_header.revision);
 }
 static DEVICE_ATTR_RO(revision);
 
@@ -1652,7 +1657,6 @@ int acpi_nfit_init(struct acpi_nfit_desc *acpi_desc, acpi_size sz)
 
 	data = (u8 *) acpi_desc->nfit;
 	end = data + sz;
-	data += sizeof(struct acpi_table_nfit);
 	while (!IS_ERR_OR_NULL(data))
 		data = add_table(acpi_desc, &prev, data, end);
 
@@ -1748,13 +1752,29 @@ static int acpi_nfit_add(struct acpi_device *adev)
 		return PTR_ERR(acpi_desc);
 	}
 
-	acpi_desc->nfit = (struct acpi_table_nfit *) tbl;
+	/*
+	 * Save the acpi header for later and then skip it,
+	 * making nfit point to the first nfit table header.
+	 */
+	acpi_desc->acpi_header = *tbl;
+	acpi_desc->nfit = (void *) tbl + sizeof(struct acpi_table_nfit);
+	sz -= sizeof(struct acpi_table_nfit);
 
 	/* Evaluate _FIT and override with that if present */
 	status = acpi_evaluate_object(adev->handle, "_FIT", NULL, &buf);
 	if (ACPI_SUCCESS(status) && buf.length > 0) {
-		acpi_desc->nfit = (struct acpi_table_nfit *)buf.pointer;
-		sz = buf.length;
+		union acpi_object *obj;
+		/*
+		 * Adjust for the acpi_object header of the _FIT
+		 */
+		obj = buf.pointer;
+		if (obj->type == ACPI_TYPE_BUFFER) {
+			acpi_desc->nfit =
+				(struct acpi_nfit_header *)obj->buffer.pointer;
+			sz = obj->buffer.length;
+		} else
+			dev_dbg(dev, "%s invalid type %d, ignoring _FIT\n",
+				 __func__, (int) obj->type);
 	}
 
 	rc = acpi_nfit_init(acpi_desc, sz);
@@ -1777,7 +1797,8 @@ static void acpi_nfit_notify(struct acpi_device *adev, u32 event)
 {
 	struct acpi_nfit_desc *acpi_desc = dev_get_drvdata(&adev->dev);
 	struct acpi_buffer buf = { ACPI_ALLOCATE_BUFFER, NULL };
-	struct acpi_table_nfit *nfit_saved;
+	struct acpi_nfit_header *nfit_saved;
+	union acpi_object *obj;
 	struct device *dev = &adev->dev;
 	acpi_status status;
 	int ret;
@@ -1788,7 +1809,7 @@ static void acpi_nfit_notify(struct acpi_device *adev, u32 event)
 	if (!dev->driver) {
 		/* dev->driver may be null if we're being removed */
 		dev_dbg(dev, "%s: no driver found for dev\n", __func__);
-		return;
+		goto out_unlock;
 	}
 
 	if (!acpi_desc) {
@@ -1808,12 +1829,19 @@ static void acpi_nfit_notify(struct acpi_device *adev, u32 event)
 	}
 
 	nfit_saved = acpi_desc->nfit;
-	acpi_desc->nfit = (struct acpi_table_nfit *)buf.pointer;
-	ret = acpi_nfit_init(acpi_desc, buf.length);
-	if (!ret) {
-		/* Merge failed, restore old nfit, and exit */
-		acpi_desc->nfit = nfit_saved;
-		dev_err(dev, "failed to merge updated NFIT\n");
+	obj = buf.pointer;
+	if (obj->type == ACPI_TYPE_BUFFER) {
+		acpi_desc->nfit =
+			(struct acpi_nfit_header *)obj->buffer.pointer;
+		ret = acpi_nfit_init(acpi_desc, obj->buffer.length);
+		if (ret) {
+			/* Merge failed, restore old nfit, and exit */
+			acpi_desc->nfit = nfit_saved;
+			dev_err(dev, "failed to merge updated NFIT\n");
+		}
+	} else {
+		/* Bad _FIT, restore old nfit */
+		dev_err(dev, "Invalid _FIT\n");
 	}
 	kfree(buf.pointer);
 

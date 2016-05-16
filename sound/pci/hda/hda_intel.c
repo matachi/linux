@@ -90,6 +90,8 @@ enum {
 #define NVIDIA_HDA_ENABLE_COHBIT      0x01
 
 /* Defines for Intel SCH HDA snoop control */
+#define INTEL_HDA_CGCTL	 0x48
+#define INTEL_HDA_CGCTL_MISCBDCGE        (0x1 << 6)
 #define INTEL_SCH_HDA_DEVC      0x78
 #define INTEL_SCH_HDA_DEVC_NOSNOOP       (0x1<<11)
 
@@ -312,6 +314,10 @@ enum {
 	(AZX_DCAPS_INTEL_PCH | AZX_DCAPS_SEPARATE_STREAM_TAG |\
 	 AZX_DCAPS_I915_POWERWELL)
 
+#define AZX_DCAPS_INTEL_BROXTON \
+	(AZX_DCAPS_INTEL_PCH | AZX_DCAPS_SEPARATE_STREAM_TAG |\
+	 AZX_DCAPS_I915_POWERWELL)
+
 /* quirks for ATI SB / AMD Hudson */
 #define AZX_DCAPS_PRESET_ATI_SB \
 	(AZX_DCAPS_NO_TCSEL | AZX_DCAPS_SYNC_WRITE | AZX_DCAPS_POSFIX_LPIB |\
@@ -350,6 +356,11 @@ enum {
 					((pci)->device == 0x0c0c) || \
 					((pci)->device == 0x0d0c) || \
 					((pci)->device == 0x160c))
+
+#define IS_SKL(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0xa170)
+#define IS_SKL_LP(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x9d70)
+#define IS_BXT(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x5a98)
+#define IS_SKL_PLUS(pci) (IS_SKL(pci) || IS_SKL_LP(pci) || IS_BXT(pci))
 
 static char *driver_short_names[] = {
 	[AZX_DRIVER_ICH] = "HDA Intel",
@@ -502,15 +513,47 @@ static void azx_init_pci(struct azx *chip)
         }
 }
 
+/*
+ * In BXT-P A0, HD-Audio DMA requests is later than expected,
+ * and makes an audio stream sensitive to system latencies when
+ * 24/32 bits are playing.
+ * Adjusting threshold of DMA fifo to force the DMA request
+ * sooner to improve latency tolerance at the expense of power.
+ */
+static void bxt_reduce_dma_latency(struct azx *chip)
+{
+	u32 val;
+
+	val = azx_readl(chip, SKL_EM4L);
+	val &= (0x3 << 20);
+	azx_writel(chip, SKL_EM4L, val);
+}
+
 static void hda_intel_init_chip(struct azx *chip, bool full_reset)
 {
 	struct hdac_bus *bus = azx_bus(chip);
+	struct pci_dev *pci = chip->pci;
+	u32 val;
 
 	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL)
 		snd_hdac_set_codec_wakeup(bus, true);
+	if (IS_SKL_PLUS(pci)) {
+		pci_read_config_dword(pci, INTEL_HDA_CGCTL, &val);
+		val = val & ~INTEL_HDA_CGCTL_MISCBDCGE;
+		pci_write_config_dword(pci, INTEL_HDA_CGCTL, val);
+	}
 	azx_init_chip(chip, full_reset);
+	if (IS_SKL_PLUS(pci)) {
+		pci_read_config_dword(pci, INTEL_HDA_CGCTL, &val);
+		val = val | INTEL_HDA_CGCTL_MISCBDCGE;
+		pci_write_config_dword(pci, INTEL_HDA_CGCTL, val);
+	}
 	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL)
 		snd_hdac_set_codec_wakeup(bus, false);
+
+	/* reduce dma latency to avoid noise */
+	if (IS_BXT(pci))
+		bxt_reduce_dma_latency(chip);
 }
 
 /* calculate runtime delay from LPIB */
@@ -927,6 +970,31 @@ static int azx_resume(struct device *dev)
 }
 #endif /* CONFIG_PM_SLEEP || SUPPORT_VGA_SWITCHEROO */
 
+#ifdef CONFIG_PM_SLEEP
+/* put codec down to D3 at hibernation for Intel SKL+;
+ * otherwise BIOS may still access the codec and screw up the driver
+ */
+static int azx_freeze_noirq(struct device *dev)
+{
+	struct pci_dev *pci = to_pci_dev(dev);
+
+	if (IS_SKL_PLUS(pci))
+		pci_set_power_state(pci, PCI_D3hot);
+
+	return 0;
+}
+
+static int azx_thaw_noirq(struct device *dev)
+{
+	struct pci_dev *pci = to_pci_dev(dev);
+
+	if (IS_SKL_PLUS(pci))
+		pci_set_power_state(pci, PCI_D0);
+
+	return 0;
+}
+#endif /* CONFIG_PM_SLEEP */
+
 #ifdef CONFIG_PM
 static int azx_runtime_suspend(struct device *dev)
 {
@@ -1036,6 +1104,10 @@ static int azx_runtime_idle(struct device *dev)
 
 static const struct dev_pm_ops azx_pm = {
 	SET_SYSTEM_SLEEP_PM_OPS(azx_suspend, azx_resume)
+#ifdef CONFIG_PM_SLEEP
+	.freeze_noirq = azx_freeze_noirq,
+	.thaw_noirq = azx_thaw_noirq,
+#endif
 	SET_RUNTIME_PM_OPS(azx_runtime_suspend, azx_runtime_resume, azx_runtime_idle)
 };
 
@@ -2065,9 +2137,17 @@ i915_power_fail:
 static void azx_remove(struct pci_dev *pci)
 {
 	struct snd_card *card = pci_get_drvdata(pci);
+	struct azx *chip;
+	struct hda_intel *hda;
 
-	if (card)
+	if (card) {
+		/* cancel the pending probing work */
+		chip = card->private_data;
+		hda = container_of(chip, struct hda_intel, chip);
+		cancel_work_sync(&hda->probe_work);
+
 		snd_card_free(card);
+	}
 }
 
 static void azx_shutdown(struct pci_dev *pci)
@@ -2124,6 +2204,12 @@ static const struct pci_device_id azx_ids[] = {
 	/* Sunrise Point-LP */
 	{ PCI_DEVICE(0x8086, 0x9d70),
 	  .driver_data = AZX_DRIVER_PCH | AZX_DCAPS_INTEL_SKYLAKE },
+	/* Broxton-P(Apollolake) */
+	{ PCI_DEVICE(0x8086, 0x5a98),
+	  .driver_data = AZX_DRIVER_PCH | AZX_DCAPS_INTEL_BROXTON },
+	/* Broxton-T */
+	{ PCI_DEVICE(0x8086, 0x1a98),
+	  .driver_data = AZX_DRIVER_PCH | AZX_DCAPS_INTEL_BROXTON },
 	/* Haswell */
 	{ PCI_DEVICE(0x8086, 0x0a0c),
 	  .driver_data = AZX_DRIVER_HDMI | AZX_DCAPS_INTEL_HASWELL },

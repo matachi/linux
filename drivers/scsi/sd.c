@@ -638,11 +638,24 @@ static void sd_config_discard(struct scsi_disk *sdkp, unsigned int mode)
 	unsigned int max_blocks = 0;
 
 	q->limits.discard_zeroes_data = 0;
-	q->limits.discard_alignment = sdkp->unmap_alignment *
-		logical_block_size;
-	q->limits.discard_granularity =
-		max(sdkp->physical_block_size,
-		    sdkp->unmap_granularity * logical_block_size);
+
+	/*
+	 * When LBPRZ is reported, discard alignment and granularity
+	 * must be fixed to the logical block size. Otherwise the block
+	 * layer will drop misaligned portions of the request which can
+	 * lead to data corruption. If LBPRZ is not set, we honor the
+	 * device preference.
+	 */
+	if (sdkp->lbprz) {
+		q->limits.discard_alignment = 0;
+		q->limits.discard_granularity = logical_block_size;
+	} else {
+		q->limits.discard_alignment = sdkp->unmap_alignment *
+			logical_block_size;
+		q->limits.discard_granularity =
+			max(sdkp->physical_block_size,
+			    sdkp->unmap_granularity * logical_block_size);
+	}
 
 	sdkp->provisioning_mode = mode;
 
@@ -1262,18 +1275,19 @@ static int sd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	struct scsi_disk *sdkp = scsi_disk(bdev->bd_disk);
 	struct scsi_device *sdp = sdkp->device;
 	struct Scsi_Host *host = sdp->host;
+	sector_t capacity = logical_to_sectors(sdp, sdkp->capacity);
 	int diskinfo[4];
 
 	/* default to most commonly used values */
-        diskinfo[0] = 0x40;	/* 1 << 6 */
-       	diskinfo[1] = 0x20;	/* 1 << 5 */
-       	diskinfo[2] = sdkp->capacity >> 11;
-	
+	diskinfo[0] = 0x40;	/* 1 << 6 */
+	diskinfo[1] = 0x20;	/* 1 << 5 */
+	diskinfo[2] = capacity >> 11;
+
 	/* override with calculated, extended default, or driver values */
 	if (host->hostt->bios_param)
-		host->hostt->bios_param(sdp, bdev, sdkp->capacity, diskinfo);
+		host->hostt->bios_param(sdp, bdev, capacity, diskinfo);
 	else
-		scsicam_bios_param(bdev, sdkp->capacity, diskinfo);
+		scsicam_bios_param(bdev, capacity, diskinfo);
 
 	geo->heads = diskinfo[0];
 	geo->sectors = diskinfo[1];
@@ -2321,19 +2335,8 @@ got_data:
 		}
 	}
 
-	if (sdkp->capacity > 0xffffffff) {
+	if (sdkp->capacity > 0xffffffff)
 		sdp->use_16_for_rw = 1;
-		sdkp->max_xfer_blocks = SD_MAX_XFER_BLOCKS;
-	} else
-		sdkp->max_xfer_blocks = SD_DEF_XFER_BLOCKS;
-
-	/* Rescale capacity to 512-byte units */
-	if (sector_size == 4096)
-		sdkp->capacity <<= 3;
-	else if (sector_size == 2048)
-		sdkp->capacity <<= 2;
-	else if (sector_size == 1024)
-		sdkp->capacity <<= 1;
 
 	blk_queue_physical_block_size(sdp->request_queue,
 				      sdkp->physical_block_size);
@@ -2642,7 +2645,6 @@ static void sd_read_block_limits(struct scsi_disk *sdkp)
 {
 	unsigned int sector_sz = sdkp->device->sector_size;
 	const int vpd_len = 64;
-	u32 max_xfer_length;
 	unsigned char *buffer = kmalloc(vpd_len, GFP_KERNEL);
 
 	if (!buffer ||
@@ -2650,14 +2652,11 @@ static void sd_read_block_limits(struct scsi_disk *sdkp)
 	    scsi_get_vpd_page(sdkp->device, 0xb0, buffer, vpd_len))
 		goto out;
 
-	max_xfer_length = get_unaligned_be32(&buffer[8]);
-	if (max_xfer_length)
-		sdkp->max_xfer_blocks = max_xfer_length;
-
 	blk_queue_io_min(sdkp->disk->queue,
 			 get_unaligned_be16(&buffer[6]) * sector_sz);
-	blk_queue_io_opt(sdkp->disk->queue,
-			 get_unaligned_be32(&buffer[12]) * sector_sz);
+
+	sdkp->max_xfer_blocks = get_unaligned_be32(&buffer[8]);
+	sdkp->opt_xfer_blocks = get_unaligned_be32(&buffer[12]);
 
 	if (buffer[3] == 0x3c) {
 		unsigned int lba_count, desc_count;
@@ -2815,8 +2814,9 @@ static int sd_revalidate_disk(struct gendisk *disk)
 {
 	struct scsi_disk *sdkp = scsi_disk(disk);
 	struct scsi_device *sdp = sdkp->device;
+	struct request_queue *q = sdkp->disk->queue;
 	unsigned char *buffer;
-	unsigned int max_xfer;
+	unsigned int dev_max, rw_max;
 
 	SCSI_LOG_HLQUEUE(3, sd_printk(KERN_INFO, sdkp,
 				      "sd_revalidate_disk\n"));
@@ -2864,13 +2864,31 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	 */
 	sd_set_flush_flag(sdkp);
 
-	max_xfer = sdkp->max_xfer_blocks;
-	max_xfer <<= ilog2(sdp->sector_size) - 9;
+	/* Initial block count limit based on CDB TRANSFER LENGTH field size. */
+	dev_max = sdp->use_16_for_rw ? SD_MAX_XFER_BLOCKS : SD_DEF_XFER_BLOCKS;
 
-	sdkp->disk->queue->limits.max_sectors =
-		min_not_zero(queue_max_hw_sectors(sdkp->disk->queue), max_xfer);
+	/* Some devices report a maximum block count for READ/WRITE requests. */
+	dev_max = min_not_zero(dev_max, sdkp->max_xfer_blocks);
+	q->limits.max_dev_sectors = logical_to_sectors(sdp, dev_max);
 
-	set_capacity(disk, sdkp->capacity);
+	/*
+	 * Use the device's preferred I/O size for reads and writes
+	 * unless the reported value is unreasonably small, large, or
+	 * garbage.
+	 */
+	if (sdkp->opt_xfer_blocks &&
+	    sdkp->opt_xfer_blocks <= dev_max &&
+	    sdkp->opt_xfer_blocks <= SD_DEF_XFER_BLOCKS &&
+	    sdkp->opt_xfer_blocks * sdp->sector_size >= PAGE_CACHE_SIZE)
+		rw_max = q->limits.io_opt =
+			sdkp->opt_xfer_blocks * sdp->sector_size;
+	else
+		rw_max = BLK_DEF_MAX_SECTORS;
+
+	/* Combine with controller limits */
+	q->limits.max_sectors = min(rw_max, queue_max_hw_sectors(q));
+
+	set_capacity(disk, logical_to_sectors(sdp, sdkp->capacity));
 	sd_config_write_same(sdkp);
 	kfree(buffer);
 
@@ -3238,8 +3256,8 @@ static int sd_suspend_common(struct device *dev, bool ignore_stop_errors)
 	struct scsi_disk *sdkp = dev_get_drvdata(dev);
 	int ret = 0;
 
-	if (!sdkp)
-		return 0;	/* this can happen */
+	if (!sdkp)	/* E.g.: runtime suspend following sd_remove() */
+		return 0;
 
 	if (sdkp->WCE && sdkp->media_present) {
 		sd_printk(KERN_NOTICE, sdkp, "Synchronizing SCSI cache\n");
@@ -3277,6 +3295,9 @@ static int sd_suspend_runtime(struct device *dev)
 static int sd_resume(struct device *dev)
 {
 	struct scsi_disk *sdkp = dev_get_drvdata(dev);
+
+	if (!sdkp)	/* E.g.: runtime resume at the start of sd_probe() */
+		return 0;
 
 	if (!sdkp->device->manage_start_stop)
 		return 0;

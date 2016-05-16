@@ -97,16 +97,16 @@ trace_find_event_field(struct trace_event_call *call, char *name)
 	struct ftrace_event_field *field;
 	struct list_head *head;
 
+	head = trace_get_fields(call);
+	field = __find_event_field(head, name);
+	if (field)
+		return field;
+
 	field = __find_event_field(&ftrace_generic_fields, name);
 	if (field)
 		return field;
 
-	field = __find_event_field(&ftrace_common_fields, name);
-	if (field)
-		return field;
-
-	head = trace_get_fields(call);
-	return __find_event_field(head, name);
+	return __find_event_field(&ftrace_common_fields, name);
 }
 
 static int __trace_define_field(struct list_head *head, const char *type,
@@ -171,8 +171,10 @@ static int trace_define_generic_fields(void)
 {
 	int ret;
 
-	__generic_field(int, cpu, FILTER_OTHER);
-	__generic_field(char *, comm, FILTER_PTR_STRING);
+	__generic_field(int, CPU, FILTER_CPU);
+	__generic_field(int, cpu, FILTER_CPU);
+	__generic_field(char *, COMM, FILTER_COMM);
+	__generic_field(char *, comm, FILTER_COMM);
 
 	return ret;
 }
@@ -582,6 +584,12 @@ static void __ftrace_clear_event_pids(struct trace_array *tr)
 	unregister_trace_sched_wakeup(event_filter_pid_sched_wakeup_probe_pre, tr);
 	unregister_trace_sched_wakeup(event_filter_pid_sched_wakeup_probe_post, tr);
 
+	unregister_trace_sched_wakeup_new(event_filter_pid_sched_wakeup_probe_pre, tr);
+	unregister_trace_sched_wakeup_new(event_filter_pid_sched_wakeup_probe_post, tr);
+
+	unregister_trace_sched_waking(event_filter_pid_sched_wakeup_probe_pre, tr);
+	unregister_trace_sched_waking(event_filter_pid_sched_wakeup_probe_post, tr);
+
 	list_for_each_entry(file, &tr->events, list) {
 		clear_bit(EVENT_FILE_FL_PID_FILTER_BIT, &file->flags);
 	}
@@ -863,7 +871,8 @@ t_next(struct seq_file *m, void *v, loff_t *pos)
 		 * The ftrace subsystem is for showing formats only.
 		 * They can not be enabled or disabled via the event files.
 		 */
-		if (call->class && call->class->reg)
+		if (call->class && call->class->reg &&
+		    !(call->flags & TRACE_EVENT_FL_IGNORE_ENABLE))
 			return file;
 	}
 
@@ -1729,6 +1738,16 @@ ftrace_event_pid_write(struct file *filp, const char __user *ubuf,
 						 tr, INT_MAX);
 		register_trace_prio_sched_wakeup(event_filter_pid_sched_wakeup_probe_post,
 						 tr, 0);
+
+		register_trace_prio_sched_wakeup_new(event_filter_pid_sched_wakeup_probe_pre,
+						     tr, INT_MAX);
+		register_trace_prio_sched_wakeup_new(event_filter_pid_sched_wakeup_probe_post,
+						     tr, 0);
+
+		register_trace_prio_sched_waking(event_filter_pid_sched_wakeup_probe_pre,
+						 tr, INT_MAX);
+		register_trace_prio_sched_waking(event_filter_pid_sched_wakeup_probe_post,
+						 tr, 0);
 	}
 
 	/*
@@ -2088,8 +2107,13 @@ event_create_dir(struct dentry *parent, struct trace_event_file *file)
 	trace_create_file("filter", 0644, file->dir, file,
 			  &ftrace_event_filter_fops);
 
-	trace_create_file("trigger", 0644, file->dir, file,
-			  &event_trigger_fops);
+	/*
+	 * Only event directories that can be enabled should have
+	 * triggers.
+	 */
+	if (!(call->flags & TRACE_EVENT_FL_IGNORE_ENABLE))
+		trace_create_file("trigger", 0644, file->dir, file,
+				  &event_trigger_fops);
 
 	trace_create_file("format", 0444, file->dir, call,
 			  &ftrace_event_format_fops);

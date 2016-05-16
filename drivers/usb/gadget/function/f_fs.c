@@ -423,7 +423,7 @@ static ssize_t __ffs_ep0_read_events(struct ffs_data *ffs, char __user *buf,
 	spin_unlock_irq(&ffs->ev.waitq.lock);
 	mutex_unlock(&ffs->mutex);
 
-	return unlikely(__copy_to_user(buf, events, size)) ? -EFAULT : size;
+	return unlikely(copy_to_user(buf, events, size)) ? -EFAULT : size;
 }
 
 static ssize_t ffs_ep0_read(struct file *file, char __user *buf,
@@ -513,7 +513,7 @@ static ssize_t ffs_ep0_read(struct file *file, char __user *buf,
 
 		/* unlocks spinlock */
 		ret = __ffs_ep0_queue_wait(ffs, data, len);
-		if (likely(ret > 0) && unlikely(__copy_to_user(buf, data, len)))
+		if (likely(ret > 0) && unlikely(copy_to_user(buf, data, len)))
 			ret = -EFAULT;
 		goto done_mutex;
 
@@ -646,6 +646,7 @@ static void ffs_user_copy_worker(struct work_struct *work)
 						   work);
 	int ret = io_data->req->status ? io_data->req->status :
 					 io_data->req->actual;
+	bool kiocb_has_eventfd = io_data->kiocb->ki_flags & IOCB_EVENTFD;
 
 	if (io_data->read && ret > 0) {
 		use_mm(io_data->mm);
@@ -657,13 +658,11 @@ static void ffs_user_copy_worker(struct work_struct *work)
 
 	io_data->kiocb->ki_complete(io_data->kiocb, ret, ret);
 
-	if (io_data->ffs->ffs_eventfd &&
-	    !(io_data->kiocb->ki_flags & IOCB_EVENTFD))
+	if (io_data->ffs->ffs_eventfd && !kiocb_has_eventfd)
 		eventfd_signal(io_data->ffs->ffs_eventfd, 1);
 
 	usb_ep_free_request(io_data->ep, io_data->req);
 
-	io_data->kiocb->private = NULL;
 	if (io_data->read)
 		kfree(io_data->to_free);
 	kfree(io_data->buf);
@@ -3493,7 +3492,7 @@ static char *ffs_prepare_buffer(const char __user *buf, size_t len)
 	if (unlikely(!data))
 		return ERR_PTR(-ENOMEM);
 
-	if (unlikely(__copy_from_user(data, buf, len))) {
+	if (unlikely(copy_from_user(data, buf, len))) {
 		kfree(data);
 		return ERR_PTR(-EFAULT);
 	}

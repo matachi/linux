@@ -51,13 +51,10 @@ static vfio_platform_reset_fn_t vfio_platform_lookup_reset(const char *compat,
 
 static void vfio_platform_get_reset(struct vfio_platform_device *vdev)
 {
-	char modname[256];
-
 	vdev->reset = vfio_platform_lookup_reset(vdev->compat,
 						&vdev->reset_module);
 	if (!vdev->reset) {
-		snprintf(modname, 256, "vfio-reset:%s", vdev->compat);
-		request_module(modname);
+		request_module("vfio-reset:%s", vdev->compat);
 		vdev->reset = vfio_platform_lookup_reset(vdev->compat,
 							 &vdev->reset_module);
 	}
@@ -222,7 +219,8 @@ static long vfio_platform_ioctl(void *device_data,
 		info.num_regions = vdev->num_regions;
 		info.num_irqs = vdev->num_irqs;
 
-		return copy_to_user((void __user *)arg, &info, minsz);
+		return copy_to_user((void __user *)arg, &info, minsz) ?
+			-EFAULT : 0;
 
 	} else if (cmd == VFIO_DEVICE_GET_REGION_INFO) {
 		struct vfio_region_info info;
@@ -243,7 +241,8 @@ static long vfio_platform_ioctl(void *device_data,
 		info.size = vdev->regions[info.index].size;
 		info.flags = vdev->regions[info.index].flags;
 
-		return copy_to_user((void __user *)arg, &info, minsz);
+		return copy_to_user((void __user *)arg, &info, minsz) ?
+			-EFAULT : 0;
 
 	} else if (cmd == VFIO_DEVICE_GET_IRQ_INFO) {
 		struct vfio_irq_info info;
@@ -262,7 +261,8 @@ static long vfio_platform_ioctl(void *device_data,
 		info.flags = vdev->irqs[info.index].flags;
 		info.count = vdev->irqs[info.index].count;
 
-		return copy_to_user((void __user *)arg, &info, minsz);
+		return copy_to_user((void __user *)arg, &info, minsz) ?
+			-EFAULT : 0;
 
 	} else if (cmd == VFIO_DEVICE_SET_IRQS) {
 		struct vfio_irq_set hdr;

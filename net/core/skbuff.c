@@ -79,6 +79,8 @@
 
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
+int sysctl_max_skb_frags __read_mostly = MAX_SKB_FRAGS;
+EXPORT_SYMBOL(sysctl_max_skb_frags);
 
 /**
  *	skb_panic - private function for out-of-line support
@@ -2946,6 +2948,24 @@ int skb_append_pagefrags(struct sk_buff *skb, struct page *page,
 EXPORT_SYMBOL_GPL(skb_append_pagefrags);
 
 /**
+ *	skb_push_rcsum - push skb and update receive checksum
+ *	@skb: buffer to update
+ *	@len: length of data pulled
+ *
+ *	This function performs an skb_push on the packet and updates
+ *	the CHECKSUM_COMPLETE checksum.  It should be used on
+ *	receive path processing instead of skb_push unless you know
+ *	that the checksum difference is zero (e.g., a valid IP header)
+ *	or you are setting ip_summed to CHECKSUM_NONE.
+ */
+static unsigned char *skb_push_rcsum(struct sk_buff *skb, unsigned len)
+{
+	skb_push(skb, len);
+	skb_postpush_rcsum(skb, skb->data, len);
+	return skb->data;
+}
+
+/**
  *	skb_pull_rcsum - pull skb and update receive checksum
  *	@skb: buffer to update
  *	@len: length of data pulled
@@ -3643,7 +3663,8 @@ static void __skb_complete_tx_timestamp(struct sk_buff *skb,
 	serr->ee.ee_info = tstype;
 	if (sk->sk_tsflags & SOF_TIMESTAMPING_OPT_ID) {
 		serr->ee.ee_data = skb_shinfo(skb)->tskey;
-		if (sk->sk_protocol == IPPROTO_TCP)
+		if (sk->sk_protocol == IPPROTO_TCP &&
+		    sk->sk_type == SOCK_STREAM)
 			serr->ee.ee_data -= sk->sk_tskey;
 	}
 
@@ -4081,9 +4102,9 @@ struct sk_buff *skb_checksum_trimmed(struct sk_buff *skb,
 	if (!pskb_may_pull(skb_chk, offset))
 		goto err;
 
-	__skb_pull(skb_chk, offset);
+	skb_pull_rcsum(skb_chk, offset);
 	ret = skb_chkf(skb_chk);
-	__skb_push(skb_chk, offset);
+	skb_push_rcsum(skb_chk, offset);
 
 	if (ret)
 		goto err;
@@ -4268,7 +4289,7 @@ static struct sk_buff *skb_reorder_vlan_header(struct sk_buff *skb)
 		return NULL;
 	}
 
-	memmove(skb->data - ETH_HLEN, skb->data - skb->mac_len,
+	memmove(skb->data - ETH_HLEN, skb->data - skb->mac_len - VLAN_HLEN,
 		2 * ETH_ALEN);
 	skb->mac_header += VLAN_HLEN;
 	return skb;

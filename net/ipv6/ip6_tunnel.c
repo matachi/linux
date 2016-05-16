@@ -177,7 +177,7 @@ void ip6_tnl_dst_reset(struct ip6_tnl *t)
 	int i;
 
 	for_each_possible_cpu(i)
-		ip6_tnl_per_cpu_dst_set(raw_cpu_ptr(t->dst_cache), NULL);
+		ip6_tnl_per_cpu_dst_set(per_cpu_ptr(t->dst_cache, i), NULL);
 }
 EXPORT_SYMBOL_GPL(ip6_tnl_dst_reset);
 
@@ -343,12 +343,12 @@ static int ip6_tnl_create2(struct net_device *dev)
 
 	t = netdev_priv(dev);
 
+	dev->rtnl_link_ops = &ip6_link_ops;
 	err = register_netdevice(dev);
 	if (err < 0)
 		goto out;
 
 	strcpy(t->parms.name, dev->name);
-	dev->rtnl_link_ops = &ip6_link_ops;
 
 	dev_hold(dev);
 	ip6_tnl_link(ip6n, t);
@@ -1179,6 +1179,8 @@ ip4ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev)
 	__u32 mtu;
 	u8 tproto;
 	int err;
+
+	memset(&(IPCB(skb)->opt), 0, sizeof(IPCB(skb)->opt));
 
 	tproto = ACCESS_ONCE(t->parms.proto);
 	if (tproto != IPPROTO_IPIP && tproto != 0)

@@ -747,7 +747,7 @@ static int mtk_gpio_get_direction(struct gpio_chip *chip, unsigned offset)
 	reg_addr =  mtk_get_port(pctl, offset) + pctl->devdata->dir_offset;
 	bit = BIT(offset & 0xf);
 	regmap_read(pctl->regmap1, reg_addr, &read_val);
-	return !!(read_val & bit);
+	return !(read_val & bit);
 }
 
 static int mtk_gpio_get(struct gpio_chip *chip, unsigned offset)
@@ -757,12 +757,8 @@ static int mtk_gpio_get(struct gpio_chip *chip, unsigned offset)
 	unsigned int read_val = 0;
 	struct mtk_pinctrl *pctl = dev_get_drvdata(chip->dev);
 
-	if (mtk_gpio_get_direction(chip, offset))
-		reg_addr = mtk_get_port(pctl, offset) +
-			pctl->devdata->dout_offset;
-	else
-		reg_addr = mtk_get_port(pctl, offset) +
-			pctl->devdata->din_offset;
+	reg_addr = mtk_get_port(pctl, offset) +
+		pctl->devdata->din_offset;
 
 	bit = BIT(offset & 0xf);
 	regmap_read(pctl->regmap1, reg_addr, &read_val);
@@ -943,7 +939,8 @@ static int mtk_gpio_set_debounce(struct gpio_chip *chip, unsigned offset,
 	struct mtk_pinctrl *pctl = dev_get_drvdata(chip->dev);
 	int eint_num, virq, eint_offset;
 	unsigned int set_offset, bit, clr_bit, clr_offset, rst, i, unmask, dbnc;
-	static const unsigned int dbnc_arr[] = {0 , 1, 16, 32, 64, 128, 256};
+	static const unsigned int debounce_time[] = {500, 1000, 16000, 32000, 64000,
+						128000, 256000};
 	const struct mtk_desc_pin *pin;
 	struct irq_data *d;
 
@@ -961,9 +958,9 @@ static int mtk_gpio_set_debounce(struct gpio_chip *chip, unsigned offset,
 	if (!mtk_eint_can_en_debounce(pctl, eint_num))
 		return -ENOSYS;
 
-	dbnc = ARRAY_SIZE(dbnc_arr);
-	for (i = 0; i < ARRAY_SIZE(dbnc_arr); i++) {
-		if (debounce <= dbnc_arr[i]) {
+	dbnc = ARRAY_SIZE(debounce_time);
+	for (i = 0; i < ARRAY_SIZE(debounce_time); i++) {
+		if (debounce <= debounce_time[i]) {
 			dbnc = i;
 			break;
 		}
@@ -997,6 +994,7 @@ static struct gpio_chip mtk_gpio_chip = {
 	.owner			= THIS_MODULE,
 	.request		= gpiochip_generic_request,
 	.free			= gpiochip_generic_free,
+	.get_direction		= mtk_gpio_get_direction,
 	.direction_input	= mtk_gpio_direction_input,
 	.direction_output	= mtk_gpio_direction_output,
 	.get			= mtk_gpio_get,

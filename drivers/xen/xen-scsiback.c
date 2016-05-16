@@ -726,7 +726,7 @@ static int scsiback_do_cmd_fn(struct vscsibk_info *info)
 		if (!pending_req)
 			return 1;
 
-		ring_req = *RING_GET_REQUEST(ring, rc);
+		RING_COPY_REQUEST(ring, rc, &ring_req);
 		ring->req_cons = ++rc;
 
 		err = prepare_pending_reqs(info, &ring_req, pending_req);
@@ -939,12 +939,12 @@ out:
 	spin_unlock_irqrestore(&info->v2p_lock, flags);
 
 out_free:
-	mutex_lock(&tpg->tv_tpg_mutex);
-	tpg->tv_tpg_fe_count--;
-	mutex_unlock(&tpg->tv_tpg_mutex);
-
-	if (err)
+	if (err) {
+		mutex_lock(&tpg->tv_tpg_mutex);
+		tpg->tv_tpg_fe_count--;
+		mutex_unlock(&tpg->tv_tpg_mutex);
 		kfree(new);
+	}
 
 	return err;
 }
