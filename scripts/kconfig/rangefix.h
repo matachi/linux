@@ -24,6 +24,9 @@ struct r_expr *rangefix_get_modified_constraint(
 	struct r_expr *constraints, GArray *diagnosis);
 GArray *rangefix_get_fixes(void);
 
+/* TODO: Only temporary for debug reasons. */
+GArray *full_diagnoses;
+
 #ifdef __cplusplus
   }
 #endif

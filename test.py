@@ -9,6 +9,7 @@ import sys
 env = os.environ.copy()
 env['SRCARCH'] = 'x86'
 env['ARCH'] = 'x86'
+env['KERNELVERSION'] = '4.4.10'
 
 
 def communicate(p):
@@ -26,6 +27,7 @@ def get_random_options(num):
 
 
 re_diagnosis = re.compile(r'Diagnosis: (.*)\n')
+re_full_diagnosis = re.compile(r'Full diagnosis: (.*)\n')
 re_total = re.compile(r'Total: (\d+) ms')
 re_setup = re.compile(r'Setup: (\d+) ms')
 re_find = re.compile(r'Find: (\d+) ms')
@@ -53,18 +55,22 @@ def do_iteration(option_name):
         diagnoses = [
                 list(filter(None, d.split(', ',)))
                 for d in re_diagnosis.findall(out)]
+        full_diagnoses = [
+                list(filter(None, d.split(', ',)))
+                for d in re_full_diagnosis.findall(out)]
         total = re_total.search(out).group(1)
         setup = re_setup.search(out).group(1)
         find = re_find.search(out).group(1)
         simplify = re_simplify.search(out).group(1)
         iterations = re_iterations.search(out).group(1)
-        return total, setup, find, simplify, iterations, diagnoses
+        return total, setup, find, simplify, iterations, diagnoses, \
+               full_diagnoses
     p.kill()
     return None
 
 
 output = []
-for i, option in enumerate(get_random_options(50), 1):
+for i, option in enumerate(get_random_options(200), 1):
     print('### {} {} ###'.format(i, option))
     print(i, option, file=sys.stderr)
     sys.stdout.flush()
@@ -81,11 +87,16 @@ for row in output:
     if data is None:
         print('timeout')
     else:
-            total, setup, find, simplify, iterations, diagnoses = data
+            total, setup, find, simplify, iterations, diagnoses, \
+                full_diagnoses = data
             print(
                 'Total: {} ms, Setup: {} ms, Find: {} ms, Simplify: {} ms, '
                 'Iterations: {}'.format(
                     total, setup, find, simplify, iterations))
+            print('Diagnoses')
             for diagnosis in diagnoses:
                 print(diagnosis)
+            print('Full diagnoses')
+            for full_diagnosis in full_diagnoses:
+                print(full_diagnosis)
     print()

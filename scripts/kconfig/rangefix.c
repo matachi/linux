@@ -266,6 +266,10 @@ GArray *rangefix_generate_diagnoses(void)
 			DEBUG("Satisfiable\n");
 			print_array("Found diagnosis", E0);
 
+			/* TODO: Only temporary for debug reasons. */
+			GArray *E0_copy = clone_array(E0);
+			g_array_append_val(full_diagnoses, E0_copy);
+
 			gint64 time_simplify_start = g_get_monotonic_time();
 			E0 = satconfig_minimize_diagnosis(c, E0);
 			print_array("Simplified diagnosis", E0);

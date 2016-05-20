@@ -52,7 +52,7 @@ int main(int ac, char** av)
 {
 	gint64 time_total, time_total_start, time_total_end, time_setup,
 		time_setup_start, time_setup_end;
-	GArray *diagnoses, *diagnosis;
+	GArray *diagnoses, *diagnosis, *full_diagnosis;
 	int i, j;
 	int option = 1;
 	const char *kconfig_file = "Kconfig";
@@ -86,8 +86,22 @@ int main(int ac, char** av)
 	time_setup_end = g_get_monotonic_time();
 	time_setup = time_setup_end - time_setup_start;
 
+	/* TODO: Temp array for debugging. */
+	full_diagnoses = g_array_new(false, false, sizeof(GArray *));
 
 	diagnoses = rangefix_run_str(option_name, val);
+	for (i = 0; i < full_diagnoses->len; ++i) {
+		full_diagnosis = g_array_index(full_diagnoses, GArray *, i);
+		printf("Full diagnosis: ");
+		for (j = 0; j < full_diagnosis->len; ++j) {
+			printf(
+				"%s, ",
+				g_array_index(
+					full_diagnosis,
+					struct symbol *, j)->name);
+		}
+		printf("\n");
+	}
 	for (i = 0; i < diagnoses->len; ++i) {
 		diagnosis = g_array_index(diagnoses, GArray *, i);
 		printf("Diagnosis: ");
